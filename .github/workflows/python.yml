@@ -36,7 +36,8 @@ jobs:
           assert dp.get_pdf_info(merged)['page_count'] == 6
           sig = dp.make_signature_png()
           signed = dp.place_signature(pdf, sig)
-          assert dp.get_pdf_info(signed)['page_count'] == 1
+          # place_signature keeps every page (pdf has 3 pages)
+          assert dp.get_pdf_info(signed)['page_count'] == 3
           import dusrelpdf.pydantic as m
           assert m.WatermarkOptions(text='DRAFT').opacity == 0.3
           print('wheel smoke test OK')
