@@ -1,0 +1,125 @@
+---
+title: Info & bulk
+description: Read a PDF's summary with get_pdf_info and run many extracts at once with bulk_extract.
+---
+
+Two helpers that sit beside the 10 operations: `get_pdf_info` reads a PDF's
+summary without modifying it, and `bulk_extract` runs many extracts in one
+call without letting one bad selection abort the batch.
+
+## get_pdf_info
+
+```rust
+use dusrelpdf::{get_pdf_info, CommonOptions};
+
+let info = get_pdf_info(&pdf, &CommonOptions::default())?;
+println!("{} pages, PDF {}, encrypted: {}",
+    info.page_count, info.version, info.encrypted);
+// 12 pages, PDF 1.7, encrypted: false
+```
+
+Signature: `get_pdf_info(pdf: &[u8], common: &CommonOptions) -> Result<PdfInfo>`.
+
+### PdfInfo
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `page_count` | `u32` | Number of pages. |
+| `version` | `String` | PDF version string, e.g. `"1.4"`, `"1.7"`. |
+| `encrypted` | `bool` | True when the trailer has an `/Encrypt` entry. |
+| `title` | `String?` | Document title from the Info dict, if present. |
+| `page_sizes` | `Vec<(f32, f32)>` | Page sizes in points `(width, height)`, in page order. |
+
+### JavaScript / TypeScript
+
+```js
+import { getPdfInfo } from 'dusrelpdf';
+
+// Returns a PdfInfo object (camelCase keys):
+const info = getPdfInfo(pdf);
+console.log(info.pageCount); // 12
+console.log(info.pageSizes); // [[595, 842], ...]
+```
+
+### Python
+
+```python
+from dusrelpdf import get_pdf_info
+
+info = get_pdf_info(pdf)
+print(info["page_count"])  # 12
+```
+
+### CLI
+
+```bash
+dusrelpdf info report.pdf
+# report.pdf: 12 pages, PDF 1.7, encrypted: false, title: Annual Report
+
+dusrelpdf --json info report.pdf
+# {"page_count":12,"version":"1.7","encrypted":false,"title":"Annual Report","page_sizes":[[595.0,842.0],...]}
+```
+
+## bulk_extract
+
+Extract many selections from one PDF in a single call. One bad selection
+fails only its own item — never the whole batch.
+
+```rust
+use dusrelpdf::{bulk_extract, PageSetOptions};
+
+let items = bulk_extract(&pdf, &[vec![1, 2], vec![99], vec![3]], &PageSetOptions::default());
+for item in items {
+    match item.pdf {
+        Some(out) => std::fs::write(format!("part-{}.pdf", item.index + 1), out)?,
+        None => eprintln!("item {} failed: {} ({})",
+            item.index,
+            item.error_code.as_deref().unwrap_or("?"),
+            item.error.as_deref().unwrap_or("")),
+    }
+}
+```
+
+### BulkItem
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `index` | `usize` | Input index (0-based), so results line up with your selections. |
+| `pdf` | `Vec<u8>?` | Output bytes on success. |
+| `error_code` | `String?` | Error code on failure (e.g. `"PAGE_OUT_OF_RANGE"`). |
+| `error` | `String?` | Human-readable error (English) on failure. |
+
+### JavaScript
+
+```js
+import { bulkExtract } from 'dusrelpdf';
+
+// Returns BulkExtractItem[] — each successful item's pdf is a real Uint8Array:
+const items = bulkExtract(pdf, [[1, 2], [99], [3]]);
+for (const item of items) {
+  if (item.pdf) {
+    await writeFile(`part-${item.index + 1}.pdf`, item.pdf);
+  } else {
+    console.error(item.index, item.errorCode, item.error);
+  }
+}
+```
+
+### Python
+
+```python
+from dusrelpdf import bulk_extract
+
+items = bulk_extract(pdf, [[1, 2], [99], [3]])
+for item in items:
+    if item["pdf"] is not None:
+        open(f"part-{item['index'] + 1}.pdf", "wb").write(item["pdf"])
+    else:
+        print(item["index"], item["error_code"], item["error"])
+```
+
+## Errors
+
+`get_pdf_info` returns `INVALID_PDF` for non-PDF input and `ENCRYPTED_PDF`
+when a password is needed. `bulk_extract` itself never returns an error —
+failures are per-item, in the `BulkItem` fields above.

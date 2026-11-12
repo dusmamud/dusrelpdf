@@ -1,0 +1,93 @@
+---
+title: Signature
+description: Place a handwritten signature image on a page — place_signature and SignatureOptions.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Place a handwritten signature **image** on one page of a PDF.
+
+<Aside type="caution" title="Not a digital signature">
+  This is image placement only — **not** a cryptographic digital signature.
+  No signature field is created, no certificate is involved, and nothing
+  about the result is verifiable. If you need a legally verifiable
+  signature, this operation is not it.
+</Aside>
+
+## Rust
+
+```rust
+use dusrelpdf::{place_signature, SignatureOptions};
+
+let pdf = std::fs::read("contract.pdf")?;
+let sig = std::fs::read("signature.png")?; // transparent PNG recommended
+
+// Defaults: page 1, position (36, 36)pt from the bottom-left,
+// width 144pt (2 inches), height from the aspect ratio.
+let out = place_signature(&pdf, &sig, &SignatureOptions::default())?;
+
+// Page 2, explicit size:
+let out = place_signature(&pdf, &sig, &SignatureOptions {
+    page: 2,
+    x: 360.0,
+    y: 80.0,
+    width: Some(180.0),
+    height: Some(60.0),
+    ..Default::default()
+})?;
+```
+
+Signature: `place_signature(pdf: &[u8], signature_image: &[u8], options: &SignatureOptions) -> Result<Vec<u8>>`.
+
+## JavaScript
+
+```js
+import { placeSignature } from 'dusrelpdf';
+
+const out = placeSignature(pdf, sigBytes); // Uint8Array, Uint8Array → Uint8Array
+const out2 = placeSignature(pdf, sigBytes, { page: 2, x: 360, y: 80, width: 180 });
+```
+
+## Python
+
+```python
+from dusrelpdf import place_signature
+
+out = place_signature(pdf, sig_bytes)
+out = place_signature(pdf, sig_bytes, {"page": 2, "x": 360, "y": 80, "width": 180})
+```
+
+## CLI
+
+```bash
+# Page 1 (default), 36pt from the bottom-left, 144pt wide
+dusrelpdf sign contract.pdf --image signature.png -o signed.pdf
+
+# Page 2, explicit position and width
+dusrelpdf sign contract.pdf --image signature.png --page 2 --x 360 --y 80 --width 180 -o signed.pdf
+```
+
+## Options — SignatureOptions
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `page` | `1` | Target page, 1-based. |
+| `x`, `y` | `36.0` | Position in points from the bottom-left corner. |
+| `width`, `height` | `None` | Display size in points. `None` width = 144 pt, height from the image aspect ratio. Set one and the other follows the aspect ratio. |
+| `password`, `compress` | — | From `CommonOptions`. |
+
+## Transparency
+
+A transparent PNG keeps its transparency: the image is stored as RGB with
+a `/SMask` soft-mask, so the signature renders as ink on the page — not
+as an opaque white rectangle. A JPEG signature has no alpha channel, so it
+always renders as a solid rectangle; use PNG for signatures.
+
+## Errors
+
+| Code | When |
+| --- | --- |
+| `PAGE_OUT_OF_RANGE` | `page` is `0` or past the last page. |
+| `INVALID_IMAGE` | The signature image is empty or undecodable. |
+| `INVALID_PDF` | The input is not a parseable PDF. |
+| `ENCRYPTED_PDF` | The input is encrypted and no (or a wrong) password was given. |

@@ -1,0 +1,161 @@
+---
+title: Python API
+description: The dusrelpdf Python API — snake_case functions mirroring the Rust core, bytes in and out, DusrelError on failure.
+---
+
+The PyPI package (`pip install dusrelpdf`) ships the Rust core as a native
+extension (PyO3). The function names are the Rust names in `snake_case`,
+options are plain dicts with `snake_case` keys, and PDF/image arguments
+are `bytes`. Options are partial by design: missing keys fall back to the
+Rust defaults for that options struct.
+
+```python
+from dusrelpdf import merge_pdfs, extract_pages_range
+```
+
+## Conventions
+
+- **Bytes in, bytes out.** PDF and image arguments are `bytes`; results
+  are `bytes` (or `list[bytes]` for split). `memoryview` is normalised
+  to `bytes` by the Python layer.
+- **Options are dicts** with the same `snake_case` keys as the Rust
+  `*Options` structs. Pass `{}` or omit the argument for "all defaults".
+- **`CommonOptions` is flattened.** Pass `password` / `compress` at the top
+  level of the options dict — there is no nested `common` dict.
+- **Errors raise `dusrelError.DusrelError`** (a `ValueError` subclass)
+  with `.code`, `.reason_en` and `.reason_hi` attributes. Same codes as
+  every other language.
+- **`get_pdf_info` returns a dict** with `snake_case` keys, and
+  **`bulk_extract` returns a list of dicts** (see below).
+- **Custom page size** accepts `{"width": w, "height": h}` or `[w, h]` in
+  addition to the serde form `{"custom": {"width": w, "height": h}}`.
+
+## Functions
+
+```python
+# Merge
+merge_pdfs(inputs, options=None)                # list[bytes] -> bytes
+# Split
+split_pdf(pdf, ranges, options=None)            # ranges: list[list[int]] -> list[bytes]
+split_pdf_ranges(pdf, ranges, options=None)     # ranges: "1-3,4-5" -> list[bytes]
+split_each_page(pdf, options=None)              # -> list[bytes]
+# Extract / remove / reorder / rotate
+extract_pages(pdf, pages, options=None)         # pages: list[int] -> bytes
+extract_pages_range(pdf, range, options=None)   # range: "1-3,5" -> bytes
+remove_pages(pdf, pages, options=None)          # pages: list[int] -> bytes
+reorder_pages(pdf, order, options=None)         # order: list[int] -> bytes
+rotate_pages(pdf, options=None)                 # options: {"angle": 90, "pages": [...]}
+# Stamping
+images_to_pdf(images, options=None)             # list[bytes] -> bytes
+add_watermark(pdf, options=None)                # options: {"text": "DRAFT", ...}
+add_page_numbers(pdf, options=None)             # options: {"format": "Page {n} of {total}", ...}
+place_signature(pdf, signature, options=None)   # (bytes, bytes, options?) -> bytes
+# Info & bulk
+get_pdf_info(pdf, options=None)                 # -> dict
+bulk_extract(pdf, selections, options=None)     # selections: list[list[int]] -> list[dict]
+# Test-data fixtures
+make_test_pdf(pages, title=None)                # -> bytes (test data only)
+make_signature_png()                            # -> bytes (transparent PNG signature)
+make_photo_jpeg()                               # -> bytes (test photo)
+```
+
+## Examples
+
+```python
+from dusrelpdf import (
+    merge_pdfs, extract_pages_range, add_watermark,
+    add_page_numbers, get_pdf_info, DusrelError,
+)
+
+a = open("a.pdf", "rb").read()
+b = open("b.pdf", "rb").read()
+
+merged = merge_pdfs([a, b], {"preserve_metadata": True})
+excerpt = extract_pages_range(merged, "1-3,5")
+marked = add_watermark(excerpt, {"text": "DRAFT", "opacity": 0.3})
+numbered = add_page_numbers(marked, {"format": "Page {n} of {total}"})
+open("out.pdf", "wb").write(numbered)
+
+info = get_pdf_info(numbered)
+print(info["page_count"], info["version"], info["encrypted"])
+# 4 '1.7' False
+print(info["page_sizes"])  # [[595.0, 842.0], ...]
+```
+
+### Error handling
+
+```python
+from dusrelpdf import rotate_pages, DusrelError
+
+try:
+    rotate_pages(pdf, {"angle": 45})
+except DusrelError as e:
+    print(e.code)       # 'INVALID_ANGLE'
+    print(e.reason_en)  # 'Rotation angle 45 is not a multiple of 90 degrees. ...'
+    print(e.reason_hi)  # 'Rotation angle 45 90 ka multiple nahi hai. ...'
+```
+
+### Encrypted PDFs
+
+```python
+from dusrelpdf import extract_pages_range
+
+out = extract_pages_range(pdf, "1-3", {"password": "secret"})
+```
+
+### bulk_extract
+
+One bad selection fails only its own item:
+
+```python
+from dusrelpdf import bulk_extract
+
+items = bulk_extract(pdf, [[1, 2], [99], [3]])
+for item in items:
+    if item["pdf"] is not None:
+        open(f"part-{item['index'] + 1}.pdf", "wb").write(item["pdf"])
+    else:
+        print(item["index"], item["error_code"], item["error"])
+```
+
+Each item is a dict: `{"index": int, "pdf": bytes | None,
+"error_code": str | None, "error": str | None}`.
+
+### Test data
+
+```python
+from dusrelpdf import make_test_pdf, make_signature_png, extract_pages_range
+
+mock = make_test_pdf(3)               # 3-page PDF, each page says "Page <n>"
+sig = make_signature_png()            # transparent PNG signature image
+one = extract_pages_range(mock, "2")
+```
+
+## Options shape
+
+Options use the same field names and defaults as the Rust structs — see
+[Options](/guides/options/) — with `snake_case` keys in Python:
+
+```python
+add_page_numbers(pdf, {
+    "format": "Page {n} of {total}",
+    "position": "bottom_center",  # top_left | top_center | top_right | bottom_left | bottom_center | bottom_right | center
+    "font": "helvetica",          # helvetica | helvetica_bold | times_roman | courier | courier_bold
+    "start_at": 1,
+    "font_size": 10,
+    "margin": 36,
+})
+
+images_to_pdf([png, jpg], {
+    "page_size": "a4",   # auto | a4 | letter | {"width": 595, "height": 842} | [595, 842]
+    "fit": "contain",    # contain | fill
+    "background": [1.0, 1.0, 1.0],
+})
+```
+
+## Version
+
+```python
+import dusrelpdf
+print(dusrelpdf.__version__)  # '0.1.0'
+```

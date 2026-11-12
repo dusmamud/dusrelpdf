@@ -1,0 +1,115 @@
+---
+title: Watermark
+description: Stamp a text or image watermark over pages — add_watermark and WatermarkOptions.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Stamp a text or image watermark over selected pages. The watermark paints
+**over** the page content — it is appended to the content stream, not added
+as an annotation — so it survives printing and flattening.
+
+## Rust
+
+```rust
+use dusrelpdf::{add_watermark, WatermarkOptions, Position};
+
+let pdf = std::fs::read("report.pdf")?;
+
+// Text watermark — defaults: "DRAFT", opacity 0.3, 45°, Helvetica 48pt, centred.
+let out = add_watermark(&pdf, &WatermarkOptions::default())?;
+
+// Custom text watermark, bottom-right, faint, only pages 1–2:
+let out = add_watermark(&pdf, &WatermarkOptions {
+    text: Some("CONFIDENTIAL".to_string()),
+    opacity: 0.15,
+    rotation: 0.0,
+    position: Position::BottomRight,
+    pages: Some(vec![1, 2]),
+    ..Default::default()
+})?;
+
+// Image watermark (PNG/JPEG bytes):
+let logo = std::fs::read("logo.png")?;
+let out = add_watermark(&pdf, &WatermarkOptions {
+    text: None,
+    image: Some(logo),
+    opacity: 0.5,
+    rotation: 0.0,
+    image_width: Some(200.0),
+    ..Default::default()
+})?;
+```
+
+Signature: `add_watermark(pdf: &[u8], options: &WatermarkOptions) -> Result<Vec<u8>>`.
+
+## JavaScript
+
+```js
+import { addWatermark } from 'dusrelpdf';
+
+const out = addWatermark(pdf, { text: 'DRAFT' });
+const out2 = addWatermark(pdf, {
+  text: undefined,
+  image: logoBytes, // Uint8Array — the wrapper converts it for WASM
+  opacity: 0.5,
+  rotation: 0,
+});
+```
+
+## Python
+
+```python
+from dusrelpdf import add_watermark
+
+out = add_watermark(pdf, {"text": "DRAFT"})
+out = add_watermark(pdf, {"text": None, "image": logo_bytes, "opacity": 0.5})
+```
+
+## CLI
+
+```bash
+# Text watermark (defaults: opacity 0.3, 45°, 48pt, all pages)
+dusrelpdf watermark report.pdf --text DRAFT -o marked.pdf
+
+# Faint, upright, pages 1–2 only
+dusrelpdf watermark report.pdf --text CONFIDENTIAL --opacity 0.15 --angle 0 --pages "1-2" -o marked.pdf
+
+# Image watermark
+dusrelpdf watermark report.pdf --image logo.png --opacity 0.5 --angle 0 -o marked.pdf
+```
+
+`--text` and `--image` are mutually exclusive in the CLI, as in the API.
+
+## Options — WatermarkOptions
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `text` | `"DRAFT"` | Watermark text. Mutually exclusive with `image` — set exactly one. |
+| `image` | `None` | Watermark image bytes (PNG/JPEG). Mutually exclusive with `text`. |
+| `opacity` | `0.3` | 0.0–1.0. Outside that range → `INVALID_ARGUMENT`. |
+| `rotation` | `45.0` | Degrees, clockwise, around the stamp's anchor point. |
+| `font_size` | `48.0` | Points (text only). |
+| `font` | `Helvetica` | `helvetica`, `helvetica_bold`, `times_roman`, `courier`, `courier_bold`. |
+| `position` | `Center` | `top_left`, `top_center`, `top_right`, `bottom_left`, `bottom_center`, `bottom_right`, `center`. |
+| `x`, `y` | `None` | Custom position in points from the bottom-left corner. Used only when both are set. |
+| `pages` | `None` | Pages to watermark, 1-based. `None` = every page. |
+| `image_width`, `image_height` | `None` | Image size in points. `None` = natural size at 96 dpi. Set one and the other follows the aspect ratio. |
+| `password`, `compress` | — | From `CommonOptions`. |
+
+## Errors
+
+| Code | When |
+| --- | --- |
+| `INVALID_ARGUMENT` | Neither or both of `text`/`image` set; or opacity outside 0.0–1.0. |
+| `INVALID_IMAGE` | The watermark image is undecodable. |
+| `PAGE_OUT_OF_RANGE` | A listed page is `0` or past the last page. |
+| `INVALID_PDF` | The input is not a parseable PDF. |
+| `ENCRYPTED_PDF` | The input is encrypted and no (or a wrong) password was given. |
+
+<Aside type="caution" title="ASCII text only">
+  Watermark text uses the built-in base-14 fonts, so it is **ASCII only**.
+  Non-Latin scripts (Devanagari, Arabic, CJK…) cannot be stamped as text —
+  use an image watermark for those. See
+  [Limitations](/reference/limitations/).
+</Aside>

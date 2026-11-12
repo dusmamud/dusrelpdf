@@ -1,0 +1,85 @@
+---
+title: Rotate
+description: Rotate pages by 90° steps — rotate_pages and RotateOptions.
+---
+
+Rotate pages by a multiple of 90 degrees. Negative angles are normalised
+(`-90` becomes `270`).
+
+## Rust
+
+```rust
+use dusrelpdf::{rotate_pages, RotateOptions};
+
+let pdf = std::fs::read("scan.pdf")?;
+
+// Rotate every page 90° clockwise:
+let out = rotate_pages(&pdf, &RotateOptions::default())?;
+
+// Rotate only pages 1 and 3, by 180°:
+let out = rotate_pages(&pdf, &RotateOptions {
+    angle: 180,
+    pages: Some(vec![1, 3]),
+    ..Default::default()
+})?;
+```
+
+Signature: `rotate_pages(pdf: &[u8], options: &RotateOptions) -> Result<Vec<u8>>`.
+
+## JavaScript
+
+```js
+import { rotatePages } from 'dusrelpdf';
+
+const out = rotatePages(pdf, { angle: 90 }); // all pages
+const out2 = rotatePages(pdf, { angle: 180, pages: [1, 3] });
+```
+
+## Python
+
+```python
+from dusrelpdf import rotate_pages
+
+out = rotate_pages(pdf, {"angle": 90})
+out = rotate_pages(pdf, {"angle": 180, "pages": [1, 3]})
+```
+
+## CLI
+
+```bash
+# All pages, 90° (the default)
+dusrelpdf rotate scan.pdf -o rotated.pdf
+
+# Pages 1 and 3, 180°
+dusrelpdf rotate scan.pdf --angle 180 --pages "1,3" -o rotated.pdf
+
+# -90° is normalised to 270°
+dusrelpdf rotate scan.pdf --angle -90 -o rotated.pdf
+```
+
+## Options — RotateOptions
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `angle` | `90` | Rotation in degrees; must be a multiple of 90. Negative values are normalised into 0–359. |
+| `pages` | `None` | Pages to rotate, 1-based. `None` = every page. |
+| `password`, `compress` | — | From `CommonOptions`. |
+
+## How rotation works
+
+Rotation is **display rotation**: the page dictionary's `/Rotate` entry is
+updated and the content stream is not redrawn. That keeps the operation fast
+and lossless — no re-rendering, no quality loss.
+
+Inherited rotation is honoured: a page that inherits 90° from its parent
+and is rotated by another 90° ends up at 180°, not 90°. The effective
+rotation is always `(current + angle) mod 360`.
+
+## Errors
+
+| Code | When |
+| --- | --- |
+| `INVALID_ANGLE` | The angle is not a multiple of 90 (e.g. `45`, `30`). |
+| `PAGE_OUT_OF_RANGE` | A listed page is `0` or past the last page. |
+| `INVALID_PDF` | The input is not a parseable PDF. |
+| `ENCRYPTED_PDF` | The input is encrypted and no (or a wrong) password was given. |

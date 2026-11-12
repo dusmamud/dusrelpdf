@@ -1,0 +1,42 @@
+name: Website
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  website:
+    name: Astro Starlight build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The site's prebuild step runs wasm-pack (build-wasm.mjs), so
+      # the Rust toolchain + wasm-pack are needed here too.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - name: install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: install
+        working-directory: website
+        run: npm ci
+      - name: build
+        working-directory: website
+        run: npm run build
+      - name: check pages
+        working-directory: website
+        run: |
+          test -f dist/index.html
+          test -f dist/sitemap-index.xml
+          test -f dist/playground/index.html
+          test -f dist/changelog/index.html
+          test -f dist/reference/merge/index.html
+          echo "website pages OK"

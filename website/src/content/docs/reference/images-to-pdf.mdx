@@ -1,0 +1,96 @@
+---
+title: Images to PDF
+description: Make a PDF from images, one page per image — images_to_pdf and ImagesToPdfOptions.
+---
+
+Make a PDF from images: one page per image, in input order.
+
+## Rust
+
+```rust
+use dusrelpdf::{images_to_pdf, ImagesToPdfOptions, PageSize, ImageFit};
+
+let photos = vec![
+    std::fs::read("scan1.png")?,
+    std::fs::read("scan2.jpg")?,
+];
+
+// Defaults: A4 pages, image fitted inside, white background.
+let pdf = images_to_pdf(&photos, &ImagesToPdfOptions::default())?;
+
+// One page per image, each page sized to its image:
+let pdf = images_to_pdf(&photos, &ImagesToPdfOptions {
+    page_size: PageSize::Auto,
+    ..Default::default()
+})?;
+
+// US Letter, image stretched to fill the whole page:
+let pdf = images_to_pdf(&photos, &ImagesToPdfOptions {
+    page_size: PageSize::Letter,
+    fit: ImageFit::Fill,
+    ..Default::default()
+})?;
+```
+
+Signature: `images_to_pdf(images: &[Vec<u8>], options: &ImagesToPdfOptions) -> Result<Vec<u8>>`.
+
+## JavaScript
+
+```js
+import { imagesToPdf } from 'dusrelpdf';
+
+const pdf = imagesToPdf([pngBytes, jpgBytes]); // Array<Uint8Array> in, Uint8Array out
+const pdf2 = imagesToPdf([pngBytes], { pageSize: 'auto' });
+```
+
+## Python
+
+```python
+from dusrelpdf import images_to_pdf
+
+pdf = images_to_pdf([png, jpg])
+pdf = images_to_pdf([png], {"page_size": "auto"})
+```
+
+## CLI
+
+```bash
+# A4 pages (default)
+dusrelpdf images-to-pdf scan1.png scan2.jpg -o scans.pdf
+# Made scans.pdf from 2 images
+
+# One page per image, sized to the image
+dusrelpdf images-to-pdf scan1.png -o scans.pdf --page-size auto
+
+# US Letter
+dusrelpdf images-to-pdf scan1.png -o scans.pdf --page-size letter
+```
+
+## Options — ImagesToPdfOptions
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `page_size` | `A4` | `auto` (page sized to the image, 1 px = 1 pt), `a4` (595 × 842 pt), `letter` (612 × 792 pt), or `custom` with `width` + `height` in points. |
+| `fit` | `Contain` | `contain` (scale to fit inside the page, aspect ratio preserved) or `fill` (stretch to the whole page, aspect ratio not preserved). |
+| `background` | `[1.0, 1.0, 1.0]` | Background colour as `[r, g, b]` (0.0–1.0 each) for the letterboxed areas when using `contain`. Default white. |
+
+Note: `ImagesToPdfOptions` has no `password`/`compress` — it builds a new
+document (PDF 1.5) rather than reading one, so there is nothing to decrypt.
+
+## Image formats
+
+Images are decoded with the Rust `image` crate: PNG, JPEG, WebP, GIF, BMP
+and the other formats it supports. Two details matter:
+
+- **JPEGs are passed through** as DCTDecode — the original bytes are kept,
+  no re-encoding, no quality loss.
+- **Other formats are stored as RGB with a `/SMask` soft-mask**, so a
+  transparent PNG keeps its alpha instead of rendering as an opaque
+  rectangle.
+
+## Errors
+
+| Code | When |
+| --- | --- |
+| `EMPTY_INPUT` | No images given. |
+| `INVALID_IMAGE` | An image is empty, undecodable, or zero-width/zero-height (the message names the image index: `image 2: …`). |

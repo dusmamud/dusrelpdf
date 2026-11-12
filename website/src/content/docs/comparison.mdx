@@ -1,0 +1,72 @@
+---
+title: Comparison
+description: How dusrelpdf differs from lopdf, PdfCraft, pdf-lib, pypdf and PyMuPDF.
+---
+
+dusrelpdf is built **on** lopdf — it is a high-level toolkit over lopdf's
+low-level object model, not a competing PDF engine. The honest comparison
+is therefore against the libraries people actually reach for when they need
+to merge, split, rotate, watermark or number PDFs.
+
+Sources: the name-verification and landscape research done for dusrelpdf on
+2026-11-12 (live registry and docs checks of lopdf 0.47.0, PdfCraft,
+pdf-lib, pypdf and PyMuPDF). Star counts and versions are snapshots from
+that date.
+
+## The one-line difference
+
+**No pure-Rust library offers high-level merge / split / rotate / watermark /
+page-numbers / images-to-PDF in one ergonomic API.** lopdf is low-level,
+printpdf is creation-focused, PdfCraft is an app, not a library. dusrelpdf
+fills exactly that gap: one Rust core, one API, three languages, offline.
+
+## Rust
+
+| Library | What it does well | What it lacks | vs dusrelpdf |
+| --- | --- | --- | --- |
+| **lopdf** 0.47.0, MIT | Pure Rust, zero native deps; full low-level object-tree access; merge example, decrypt empty-password PDFs, object streams, `embed_image` feature | No rendering; **no built-in split / watermark / page-numbering**; merge drops outlines; weak on heavily encrypted/complex files; low-level API only | dusrelpdf **is** the high-level layer lopdf lacks: split, watermark, page numbers and signature are built on lopdf content streams. If you need raw object access, use lopdf directly. |
+| **PdfCraft** v0.21.1, MIT/Apache-2.0, ~20.4k stars | Pure-Rust PDF workbench (app + CLI + MCP + WASM); combine/split/extract preserving links, forms, layers, attachments; full security handler (RC4-40 → AES-256); tolerant parsing + repair | Alpha (self-assessed 57% of tracked features, Oct 2026); weak text editing (esp. CJK/RTL); fuzzing still finds crashes/hangs; an **app, not a library-first toolkit** | PdfCraft is the main threat: it already covers combine/split/rotate plus repair and OCR. dusrelpdf competes on library ergonomics, a stable error-code contract (EN+HI), and a small, auditable core — not on feature breadth. |
+| **printpdf**, MIT | Create/read/write/render PDFs; embedded fonts, Unicode, SVG embedding, font subsetting; WASM demo | Read support experimental; HTML-to-PDF basic/stub only; no gradients/patterns/attachments; creation-focused | Different job: printpdf creates new PDFs; dusrelpdf edits existing ones. |
+| **pdfium-render**, MIT | Bindings to Chrome's PDFium; excellent rendering to bitmaps, text/image extraction, doc creation/editing; WASM-capable | Does not bundle PDFium (runtime shared lib required, ~10 MB); editing bindings still WIP toward 1.0; "great for viewing, not great for manipulation" | If you need rendering, use pdfium-render — dusrelpdf has no renderer at all. |
+| **flpdf** 0.9.0 | Pure-Rust qpdf-shaped toolkit; `extract_pages` / `merge_documents` pipelines, page-tree splicing | `extract_pages` drops outlines/dests/Info; young/niche | Closest in spirit; dusrelpdf adds watermark, page numbers, signature, images-to-PDF and the EN+HI error contract. |
+
+## JavaScript
+
+| Library | What it does well | What it lacks | vs dusrelpdf |
+| --- | --- | --- | --- |
+| **pdf-lib**, MIT | The JS manipulation standard: load/edit existing PDFs; merge, split, rotate, crop, AcroForm fill, draw text/images, watermarks & page numbers; pure JS, Node/browser/Deno/React Native | No HTML rendering; no text layout/reflow (absolute coordinates only); fonts must be embedded as raw bytes; can't replace existing text; no rendering to images | pdf-lib is the most direct JS comparison and is more feature-complete (notably AcroForm). dusrelpdf's edge is the **same Rust core in JS, Python and Rust** — one implementation, one test suite — plus a CLI and offline WASM playground. If you only need JS and forms, pdf-lib is the safer pick today. |
+| **PDFKit**, MIT | Streaming generation of new PDFs from scratch (invoices, reports) | **Cannot open or edit existing PDFs at all** — no merge, split, watermark, form fill | Different job entirely. |
+| **jsPDF**, MIT | Browser-side generation via a canvas-like API | No merge/split/edit of existing PDFs | Different job entirely. |
+
+## Python
+
+| Library | What it does well | What it lacks | vs dusrelpdf |
+| --- | --- | --- | --- |
+| **pypdf**, BSD-3 | Pure Python, no native deps; merge/split/rotate/crop/encrypt/decrypt/metadata/text extraction; permissive licence, safe for commercial use | No rendering; no OCR; weak tables/layout; pure-Python speed; AES needs `pypdf[crypto]` extra | pypdf is the incumbent for Python PDF work and covers more ground (notably text extraction and encryption). dusrelpdf's edge is native Rust speed, the same API in three languages, and watermark/page-number/signature stamping in one package. |
+| **PyMuPDF (fitz)**, AGPL-3.0 or commercial | MuPDF C engine; fastest extraction & page rendering, span-level layout metadata, image extraction, OCR add-ons | **AGPL** blocks closed-source/SaaS use without a commercial licence; heavy install (~201 MB default) | PyMuPDF is far more powerful (rendering, extraction). dusrelpdf is MIT-licensed, tiny, and offline — pick it when the licence and the install size matter more than rendering. |
+| **pdfplumber / reportlab / pikepdf** | pdfplumber: layout-aware text/table extraction; reportlab: generation; pikepdf: object-level ops, AES-256 R6, linearization | pdfplumber/reportlab: no merge/split; pikepdf: needs native QPDF | Complementary, not competing: use pdfplumber for extraction, dusrelpdf for manipulation. |
+
+## Language-agnostic tools (the CLI benchmark)
+
+| Tool | Notes |
+| --- | --- |
+| **Stirling-PDF** (~75k stars, MIT) | Open-source self-hosted web app, 50+ tools (merge, split, rotate, watermark, OCR, sign, compress, page numbers, repair, pipelines, REST API). If you want a web UI with everything, use Stirling-PDF — dusrelpdf is a library/CLI, not a web app. |
+| **qpdf** (C++) | The standard for structural repair (rebuild xref), `--check`, linearization, encryption. dusrelpdf does **no** repair — pair it with qpdf for broken files. |
+| **PDFtk** | Merge (`cat`), split (`burst`), rotate, encrypt/decrypt, form fill, background watermark / foreground stamp. A solid CLI alternative. |
+| **pdfcpu** (Go) | First-class `watermark add` (text/image/PDF, position/rotation/opacity) and `stamp`. |
+
+## When to choose dusrelpdf
+
+- You want **one API in Rust, JavaScript and Python** with identical
+  behaviour and identical error codes.
+- You need an **MIT-licensed, tiny, offline** toolkit — no AGPL, no 200 MB
+  install, no native build step for the JS package.
+- Your jobs are the 10 operations: merge, split, extract, remove, reorder,
+  rotate, images-to-PDF, watermark, page numbers, signature-image placement.
+
+## When not to
+
+- You need **rendering** (PDF → image), **text extraction**, **OCR**,
+  **form filling**, or **repair of malformed PDFs** — see
+  [Limitations](/reference/limitations/) and the table above for the right
+  tool for each job.

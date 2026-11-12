@@ -1,0 +1,69 @@
+---
+title: Remove
+description: Delete pages from a PDF — remove_pages.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Delete pages from a PDF. The remaining pages keep their relative order.
+
+## Rust
+
+```rust
+use dusrelpdf::{remove_pages, PageSetOptions};
+
+let pdf = std::fs::read("report.pdf")?;
+let out = remove_pages(&pdf, &[2, 4], &PageSetOptions::default())?;
+// Pages 2 and 4 are gone; the rest keep their order.
+```
+
+Signature: `remove_pages(pdf: &[u8], pages: &[u32], options: &PageSetOptions) -> Result<Vec<u8>>`.
+
+## JavaScript
+
+```js
+import { removePages } from 'dusrelpdf';
+
+const out = removePages(pdf, [2, 4]);
+```
+
+## Python
+
+```python
+from dusrelpdf import remove_pages
+
+out = remove_pages(pdf, [2, 4])
+```
+
+## CLI
+
+```bash
+dusrelpdf remove report.pdf --pages "2,4" -o trimmed.pdf
+# Removed pages 2,4, wrote trimmed.pdf
+```
+
+## Behaviour
+
+- Page numbers are **1-based** and may be given in any order; duplicates
+  are harmless.
+- **Out-of-range pages are an error** (`PAGE_OUT_OF_RANGE`). This is
+  deliberate: lopdf's own `delete_pages` silently ignores bad numbers,
+  dusrelpdf does not — a typo like page `99` in a 12-page PDF should fail
+  loudly, not silently do nothing.
+- **Empty page list returns the input unchanged.** This is the one operation
+  where an empty selection is not an error — removing nothing is a valid
+  no-op, so `remove_pages(&pdf, &[], &opts)` gives you back the same bytes.
+
+## Errors
+
+| Code | When |
+| --- | --- |
+| `PAGE_OUT_OF_RANGE` | A page number is `0` or past the last page. |
+| `INVALID_PDF` | The input is not a parseable PDF. |
+| `ENCRYPTED_PDF` | The input is encrypted and no (or a wrong) password was given. |
+
+<Aside>
+  Removing <em>all</em> pages is not blocked by the API, but the result is a
+  zero-page PDF — most readers will reject it. If you need an empty document,
+  say so explicitly in your own code rather than relying on this.
+</Aside>

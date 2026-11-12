@@ -1,0 +1,16 @@
+/target/
+**/node_modules/
+packages/js/wasm-pkg/
+packages/js/dist/
+website/dist/
+website/.astro/
+website/src/lib/wasm-pkg/
+crates/dusrelpdf-py/.venv/
+*.whl
+*.so
+__pycache__/
+*.pyc
+.pytest_cache/
+# wasm-pack copies the LICENSE next to its output (generated, same as root)
+website/src/LICENSE
+.DS_Store

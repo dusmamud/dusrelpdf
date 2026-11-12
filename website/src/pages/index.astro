@@ -1,0 +1,249 @@
+---
+/**
+ * dusrelpdf landing page.
+ *
+ * Pure static page — no WASM here. (The playground at /playground/ is
+ * where the real WASM build is lazy-loaded.)
+ */
+const title = 'dusrelpdf — Offline PDF toolkit';
+const description =
+	'Merge, split, extract, remove, reorder, rotate, images-to-PDF, watermark, page numbers and signature-image placement — offline. One Rust core, zero network calls, Hindi + English error reasons.';
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>{title}</title>
+		<meta name="description" content={description} />
+		<meta property="og:type" content="website" />
+		<meta property="og:site_name" content="dusrelpdf" />
+		<meta property="og:title" content={title} />
+		<meta property="og:description" content={description} />
+		<meta property="og:url" content="https://dusrelpdf.pages.dev/" />
+		<meta property="og:image" content="https://dusrelpdf.pages.dev/og.svg" />
+		<meta name="twitter:card" content="summary_large_image" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<link rel="canonical" href="https://dusrelpdf.pages.dev/" />
+		<script type="application/ld+json" set:html={JSON.stringify({
+			'@context': 'https://schema.org',
+			'@type': 'SoftwareApplication',
+			name: 'dusrelpdf',
+			applicationCategory: 'DeveloperApplication',
+			operatingSystem: 'Cross-platform',
+			description,
+			author: { '@type': 'Person', name: 'dusmamud' },
+			offers: { '@type': 'Offer', price: '0', priceCurrency: 'INR' },
+			softwareVersion: '0.1.0',
+			url: 'https://dusrelpdf.pages.dev/',
+		})} />
+		<style>
+			:root { --bg: #0f172a; --card: #1e293b; --ink: #f8fafc; --muted: #94a3b8; --green: #22c55e; --red: #f87171; --amber: #fbbf24; --line: #334155; }
+			* { box-sizing: border-box; }
+			body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; background: var(--bg); color: var(--ink); line-height: 1.6; }
+			a { color: #4ade80; }
+			.wrap { max-width: 960px; margin: 0 auto; padding: 0 20px 64px; }
+			header { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; }
+			.logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.25rem; color: var(--ink); text-decoration: none; }
+			.logo img { width: 32px; height: 32px; }
+			nav a { color: var(--muted); text-decoration: none; margin-left: 20px; font-weight: 600; }
+			nav a:hover { color: var(--ink); }
+			.hero { padding: 48px 0 8px; }
+			.hero h1 { font-size: clamp(2rem, 5vw, 3.25rem); line-height: 1.12; margin: 0 0 16px; }
+			.hero h1 span { color: var(--green); }
+			.hero p { font-size: 1.2rem; color: var(--muted); max-width: 640px; margin: 0 0 24px; }
+			.cta { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 40px; }
+			.btn { display: inline-block; padding: 12px 22px; border-radius: 10px; font-weight: 700; text-decoration: none; }
+			.btn-primary { background: var(--green); color: #052e12; }
+			.btn-ghost { border: 1px solid var(--line); color: var(--ink); }
+			h2 { margin: 48px 0 12px; font-size: 1.5rem; }
+			pre { background: #020617; border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-size: 0.95rem; margin: 0 0 12px; }
+			pre code { color: #e2e8f0; }
+			.install-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+			.install-tabs button { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px 16px; cursor: pointer; font-weight: 600; }
+			.install-tabs button[aria-pressed="true"] { border-color: var(--green); color: var(--green); }
+			.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+			.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+			.card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+			.card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+			table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+			th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+			th { color: var(--muted); font-weight: 600; }
+			td code { color: #e2e8f0; }
+			.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+			.limits { background: #451a03; border: 1px solid #92400e; border-radius: 12px; padding: 18px 20px; }
+			.limits h2 { margin-top: 0; color: var(--amber); }
+			.limits p, .limits li { color: #fde68a; }
+			footer { margin-top: 56px; border-top: 1px solid var(--line); padding-top: 20px; color: var(--muted); font-size: 0.9rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+		</style>
+	</head>
+	<body>
+		<div class="wrap">
+			<header>
+				<a class="logo" href="/"><img src="/favicon.svg" alt="" /> dusrelpdf</a>
+				<nav>
+					<a href="/guides/installation/">Docs</a>
+					<a href="/playground/">Playground</a>
+					<a href="https://github.com/dusmamud/dusrelpdf">GitHub</a>
+				</nav>
+			</header>
+
+			<section class="hero">
+				<h1>dusrelpdf — <span>Offline PDF toolkit</span></h1>
+				<p>
+					Merge, split, extract, remove, reorder, rotate, images-to-PDF, watermark,
+					page numbers and signature-image placement — instantly, on-device, with
+					no network call and no data leaving your machine. One Rust core, one
+					package, bindings for JavaScript, Python and Rust, plus a CLI.
+				</p>
+				<div class="cta">
+					<a class="btn btn-primary" href="/guides/installation/">Get started →</a>
+					<a class="btn btn-ghost" href="/playground/">Try the playground</a>
+				</div>
+			</section>
+
+			<section>
+				<h2>Install</h2>
+				<div class="install-tabs" role="group" aria-label="Package manager">
+					<button type="button" data-install="npm" aria-pressed="true">npm</button>
+					<button type="button" data-install="pip" aria-pressed="false">pip</button>
+					<button type="button" data-install="cargo" aria-pressed="false">cargo</button>
+				</div>
+				<pre id="install-cmd"><code>npm install dusrelpdf</code></pre>
+				<pre><code>import &#123; mergePdfs &#125; from 'dusrelpdf';
+
+const merged = mergePdfs([aBytes, bBytes]); // Uint8Array out
+console.log(merged.length);</code></pre>
+				<pre><code>from dusrelpdf import merge_pdfs
+
+merged = merge_pdfs([a, b])  # bytes out</code></pre>
+			</section>
+
+			<section>
+				<h2>Why dusrelpdf</h2>
+				<div class="grid">
+					<div class="card">
+						<h3>📄 10 operations, one package</h3>
+						<p>Merge, split, extract, remove, reorder, rotate, images-to-PDF, watermark, page numbers, signature. No per-feature subpackages.</p>
+					</div>
+					<div class="card">
+						<h3>🔌 Fully offline</h3>
+						<p>No API keys, no network calls, no per-file fees. Works in a Lambda, a CLI, or a browser with no internet.</p>
+					</div>
+					<div class="card">
+						<h3>🦀 One Rust core</h3>
+						<p>One implementation, one test suite — the same rules in JavaScript, Python and Rust. No drift between ports.</p>
+					</div>
+					<div class="card">
+						<h3>🇮🇳 Hindi + English errors</h3>
+						<p>Every failure carries a stable code plus <code>reason_en</code> and <code>reason_hi</code>, so your error messages make sense to every user.</p>
+					</div>
+					<div class="card">
+						<h3>🎛️ Pro control</h3>
+						<p>Options everywhere: passwords, compression, opacity, rotation, fonts, positions, page sizes, per-page selection.</p>
+					</div>
+					<div class="card">
+						<h3>⌨️ CLI</h3>
+						<p><code>dusrelpdf merge</code>, <code>split</code>, <code>watermark</code>, <code>numbers</code>, <code>sign</code> … with <code>--json</code> output for scripts.</p>
+					</div>
+					<div class="card">
+						<h3>🧪 Bytes in, bytes out</h3>
+						<p>Every operation takes bytes and returns bytes. No temp files, no shared state — steps compose like a pipeline.</p>
+					</div>
+					<div class="card">
+						<h3>🖥️ In-browser playground</h3>
+						<p>The real Rust core compiled to WASM. Your files never leave the browser — try it before installing anything.</p>
+					</div>
+				</div>
+			</section>
+
+			<section>
+				<h2>The 10 operations</h2>
+				<div class="table-wrap">
+					<table>
+						<thead>
+							<tr><th>Operation</th><th>What it does</th><th>Example</th></tr>
+						</thead>
+						<tbody>
+							<tr><td>Merge</td><td>Join several PDFs into one, in order</td><td><code>mergePdfs([a, b])</code></td></tr>
+							<tr><td>Split</td><td>One PDF → one file per range, or per page</td><td><code>splitPdfRanges(pdf, "1-3,4-5")</code></td></tr>
+							<tr><td>Extract</td><td>Selected pages → a new PDF</td><td><code>extractPagesRange(pdf, "1-3,5")</code></td></tr>
+							<tr><td>Remove</td><td>Delete pages</td><td><code>removePages(pdf, [2, 4])</code></td></tr>
+							<tr><td>Reorder</td><td>Change the page order (full permutation)</td><td><code>reorderPages(pdf, [3, 1, 2])</code></td></tr>
+							<tr><td>Rotate</td><td>Rotate pages by 90° steps</td><td><code>rotatePages(pdf, &#123; angle: 90 &#125;)</code></td></tr>
+							<tr><td>Images to PDF</td><td>One page per image</td><td><code>imagesToPdf([png, jpg])</code></td></tr>
+							<tr><td>Watermark</td><td>Text or image stamp over pages</td><td><code>addWatermark(pdf, &#123; text: "DRAFT" &#125;)</code></td></tr>
+							<tr><td>Page numbers</td><td><code>Page &#123;n&#125; of &#123;total&#125;</code> and friends</td><td><code>addPageNumbers(pdf, &#123; format: "Page &#123;n&#125; of &#123;total&#125;" &#125;)</code></td></tr>
+							<tr><td>Signature</td><td>Place a signature image on a page</td><td><code>placeSignature(pdf, sigBytes)</code></td></tr>
+						</tbody>
+					</table>
+				</div>
+			</section>
+
+			<section>
+				<h2>Error codes — machine-readable, stable across releases</h2>
+				<div class="table-wrap">
+					<table>
+						<thead>
+							<tr><th>Code</th><th>Means</th></tr>
+						</thead>
+						<tbody>
+							<tr><td><code>INVALID_PDF</code></td><td>Input is not a PDF, is truncated, or cannot be parsed</td></tr>
+							<tr><td><code>ENCRYPTED_PDF</code></td><td>Encrypted PDF, no (or wrong) password supplied</td></tr>
+							<tr><td><code>PAGE_OUT_OF_RANGE</code></td><td>Page number outside 1..=page_count</td></tr>
+							<tr><td><code>EMPTY_INPUT</code></td><td>Empty input list / byte buffer where one item is required</td></tr>
+							<tr><td><code>INVALID_RANGE</code></td><td>Malformed or out-of-range page-range string</td></tr>
+							<tr><td><code>INVALID_ANGLE</code></td><td>Rotation angle is not a multiple of 90°</td></tr>
+							<tr><td><code>INVALID_IMAGE</code></td><td>Image missing, corrupt, or unsupported</td></tr>
+							<tr><td><code>INVALID_ARGUMENT</code></td><td>Bad argument (bad permutation, bad opacity, …)</td></tr>
+							<tr><td><code>INVALID_TYPE</code></td><td>Wrong value type reached a bindings API</td></tr>
+							<tr><td><code>OPERATION_FAILED</code></td><td>Underlying operation failed for another reason</td></tr>
+						</tbody>
+					</table>
+				</div>
+				<p style="color: var(--muted); font-size: 0.95rem;">
+					Branch on <code>code</code>, never on the reason text. Every failure also carries
+					a Hindi reason (<code>reason_hi</code>). <a href="/guides/error-codes/">Full error-code table →</a>
+				</p>
+			</section>
+
+			<section class="limits">
+				<h2>⚠️ Honest limits — read this first</h2>
+				<p>
+					v0.1.0 does <strong>not</strong> render PDFs to images and does
+					<strong>not</strong> repair malformed PDFs.
+				</p>
+				<ul>
+					<li>Merge drops the original outline trees and rebuilds flat first-page bookmarks; AcroForm, named destinations and embedded files are not carried over.</li>
+					<li>Watermark and page-number text is ASCII only.</li>
+					<li>Signature placement is a raster image, not a cryptographic digital signature.</li>
+					<li>Whole documents live in memory; there is no streaming mode.</li>
+					<li>Encrypted PDFs need a password, and only empty-password PDFs open without one.</li>
+				</ul>
+				<p><a href="/reference/limitations/">Full limitations page →</a></p>
+			</section>
+
+			<footer>
+				<span>dusrelpdf — open source, by dusmamud.</span>
+				<span><a href="/guides/installation/">Docs</a> · <a href="/playground/">Playground</a> · <a href="https://github.com/dusmamud/dusrelpdf">GitHub</a></span>
+			</footer>
+		</div>
+
+		<script>
+			const INSTALL_CMDS = {
+				npm: 'npm install dusrelpdf',
+				pip: 'pip install dusrelpdf',
+				cargo: 'cargo add dusrelpdf',
+			};
+
+			document.querySelectorAll('[data-install]').forEach((btn) => {
+				btn.addEventListener('click', () => {
+					document.querySelectorAll('[data-install]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+					btn.setAttribute('aria-pressed', 'true');
+					document.querySelector('#install-cmd code').textContent = INSTALL_CMDS[/** @type {any} */ (btn).dataset.install];
+				});
+			});
+		</script>
+	</body>
+</html>

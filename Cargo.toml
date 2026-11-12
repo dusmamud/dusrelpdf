@@ -1,0 +1,20 @@
+[workspace]
+members = [
+    "crates/dusrelpdf",
+    "crates/dusrelpdf-cli",
+    "crates/dusrelpdf-py",
+    "crates/dusrelpdf-wasm",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/dusmamud/dusrelpdf"
+homepage = "https://github.com/dusmamud/dusrelpdf"
+authors = ["dusmamud"]
+
+[workspace.dependencies]
+lopdf = { version = "0.47", features = ["embed_image", "wasm_js"] }

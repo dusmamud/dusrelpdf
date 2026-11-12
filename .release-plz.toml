@@ -1,0 +1,35 @@
+# release-plz configuration — release-pr flow from day one, so no
+# version is ever bumped by hand (the indycheck v0.2.0 lesson:
+# `release-plz release` alone does NOT bump the version).
+[workspace]
+release = false
+git_release_enable = false
+
+[[package]]
+name = "dusrelpdf"
+release = true
+publish = true
+
+[[package]]
+name = "dusrelpdf-cli"
+release = false
+publish = false
+
+[[package]]
+name = "dusrelpdf-py"
+release = false
+publish = false
+
+[[package]]
+name = "dusrelpdf-wasm"
+release = false
+publish = false
+
+[changelog]
+body = """
+## [{{ version }}] - {{ date }}
+
+### Added
+
+- {{ changes }}
+"""

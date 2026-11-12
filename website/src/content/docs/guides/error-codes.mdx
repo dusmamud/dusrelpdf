@@ -1,0 +1,93 @@
+---
+title: Error codes
+description: Every dusrelpdf error code, what it means, and the English + Hindi reason it carries.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Every public function returns a `Result` and never panics on bad input. On
+failure you get a `DusrelError` with three things:
+
+- **`code`** — a stable, machine-readable string. Branch on this, never on
+  the reason text.
+- **`reason_en`** — a human-readable reason in English.
+- **`reason_hi`** — the same reason in Roman-script Hinglish.
+
+In Rust the error is returned as a `DusrelError`; in JavaScript it is
+thrown as a `DusrelError` (an `Error` subclass with `.code`, `.reasonEn`
+and `.reasonHi`); in Python it is raised as a `DusrelError` (with `.code`,
+`.reason_en` and `.reason_hi`). The codes are identical in every language.
+(The raw WASM exports throw the same failure as a JSON string — the
+JavaScript and Python wrappers convert it into the typed error.)
+
+## The codes
+
+| Code | When it happens | `reason_en` | `reason_hi` |
+| --- | --- | --- | --- |
+| `INVALID_PDF` | Input is not a PDF, is truncated, or cannot be parsed; also when an input has no pages. | `Invalid PDF: {detail}` | `Galat PDF hai: {detail}` |
+| `ENCRYPTED_PDF` | The PDF is encrypted and no (or a wrong) password was supplied. | `This PDF is encrypted. Supply the password with Options.password.` | `Ye PDF encrypted hai. Options.password ke saath password dein.` |
+| `PAGE_OUT_OF_RANGE` | A page number is outside `1..=page_count`. | `Page {n} is out of range (this PDF has {total} pages). Pages are numbered from 1.` | `Page {n} range se bahar hai (is PDF me {total} pages hain). Pages 1 se number hote hain.` |
+| `EMPTY_INPUT` | An input list or byte buffer is empty where at least one item is required (no merge inputs, no images, empty PDF bytes, empty split ranges). | `{what} is empty.` | `{what} khaali hai.` |
+| `INVALID_RANGE` | A page-range string such as `"1-3,5"` is malformed, reversed (`"5-2"`), or out of range; or a split range is empty. | `Invalid page range "{range}". Use forms like "1-3,5" with pages numbered from 1.` | `Galat page range "{range}" hai. "1-3,5" jaise form use karein, pages 1 se number hote hain.` |
+| `INVALID_ANGLE` | A rotation angle is not a multiple of 90 degrees. | `Rotation angle {a} is not a multiple of 90 degrees. Use 0, 90, 180 or 270.` | `Rotation angle {a} 90 ka multiple nahi hai. 0, 90, 180 ya 270 use karein.` |
+| `INVALID_IMAGE` | An image is missing, corrupt, empty, or in an unsupported format. | `Invalid image: {detail}` | `Galat image hai: {detail}` |
+| `INVALID_ARGUMENT` | An argument is wrong: watermark with neither or both of `text`/`image`, opacity outside 0.0–1.0, page-number format without `{n}`, a bad reorder permutation (missing or duplicate pages), an unreadable input file (CLI). | Varies by call | Varies by call |
+| `INVALID_TYPE` | A non-string / non-bytes value reached a typed API (bindings layer). | Varies by call | Varies by call |
+| `OPERATION_FAILED` | The underlying PDF operation failed for another reason (e.g. an I/O error). | `I/O error: {detail}` | `I/O error hai: {detail}` |
+
+## Examples
+
+```rust
+use dusrelpdf::{extract_pages_range, PageSetOptions};
+
+match extract_pages_range(&pdf, "1-99", &PageSetOptions::default()) {
+    Ok(out) => std::fs::write("out.pdf", out)?,
+    Err(e) => {
+        // e.code_str() == "PAGE_OUT_OF_RANGE"
+        // e.reason_en == "Page 99 is out of range (this PDF has 12 pages). Pages are numbered from 1."
+        // e.reason_hi == "Page 99 range se bahar hai (is PDF me 12 pages hain). Pages 1 se number hote hain."
+        eprintln!("{e}"); // "PAGE_OUT_OF_RANGE: Page 99 is out of range ..."
+    }
+}
+```
+
+```js
+import { rotatePages, DusrelError } from 'dusrelpdf';
+
+try {
+  rotatePages(pdf, { angle: 45 });
+} catch (e) {
+  if (e instanceof DusrelError) {
+    console.log(e.code);      // 'INVALID_ANGLE'
+    console.log(e.reasonEn);  // 'Rotation angle 45 is not a multiple of 90 degrees. ...'
+    console.log(e.reasonHi);  // 'Rotation angle 45 90 ka multiple nahi hai. ...'
+  }
+}
+```
+
+```bash
+# CLI: exit code 1, code + both reasons on stderr
+$ dusrelpdf rotate doc.pdf --angle 45 -o out.pdf
+ERROR INVALID_ANGLE: Rotation angle 45 is not a multiple of 90 degrees. Use 0, 90, 180 or 270.
+(Rotation angle 45 90 ka multiple nahi hai. 0, 90, 180 ya 270 use karein.)
+```
+
+With `--json`, the CLI prints the same error as machine-readable JSON:
+
+```bash
+$ dusrelpdf --json rotate doc.pdf --angle 45 -o out.pdf
+{"ok":false,"code":"INVALID_ANGLE","reason_en":"Rotation angle 45 is not a multiple of 90 degrees. Use 0, 90, 180 or 270.","reason_hi":"Rotation angle 45 90 ka multiple nahi hai. 0, 90, 180 ya 270 use karein."}
+```
+
+## Notes
+
+- **Page numbers are 1-based.** Page `0` is always an error
+  (`PAGE_OUT_OF_RANGE`), never "the first page".
+- **Out-of-range pages are errors, not silent skips.** `remove_pages` with
+  a bad page number fails instead of quietly ignoring it (unlike lopdf's
+  own `delete_pages`).
+- **One bad item never kills a batch.** `bulk_extract` returns one result
+  per input; a failed item keeps its own `error_code` and `error` while the
+  rest succeed. See [Info & bulk](/reference/info-and-bulk/).
+- `remove_pages` with an **empty** page list is the one exception to the
+  empty-input rule: it returns the input unchanged instead of erroring.

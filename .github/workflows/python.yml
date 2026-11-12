@@ -1,0 +1,43 @@
+name: Python wheel
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  wheel:
+    name: maturin build + import test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install maturin
+        run: python -m pip install --upgrade pip maturin
+      - name: build wheel
+        working-directory: crates/dusrelpdf-py
+        run: python -m maturin build --release
+      - name: install wheel and smoke test
+        run: |
+          python -m venv /tmp/wheel-venv
+          # maturin uses the workspace target dir, so the wheel lands at
+          # the repo-root target/wheels/, not under crates/dusrelpdf-py/
+          /tmp/wheel-venv/bin/pip install target/wheels/*.whl
+          /tmp/wheel-venv/bin/python -c "
+          import dusrelpdf as dp
+          pdf = dp.make_test_pdf(3)
+          assert dp.get_pdf_info(pdf)['page_count'] == 3
+          merged = dp.merge_pdfs([pdf, pdf])
+          assert dp.get_pdf_info(merged)['page_count'] == 6
+          sig = dp.make_signature_png()
+          signed = dp.place_signature(pdf, sig)
+          assert dp.get_pdf_info(signed)['page_count'] == 1
+          import dusrelpdf.pydantic as m
+          assert m.WatermarkOptions(text='DRAFT').opacity == 0.3
+          print('wheel smoke test OK')
+          "

@@ -1,0 +1,100 @@
+---
+title: Page numbers
+description: Stamp page numbers on pages — add_page_numbers and PageNumberOptions.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Stamp page numbers on selected pages. Numbers are baked into the content
+stream (not annotations), so they print and flatten like any other text.
+
+## Rust
+
+```rust
+use dusrelpdf::{add_page_numbers, PageNumberOptions};
+
+let pdf = std::fs::read("report.pdf")?;
+
+// Defaults: "{n}", bottom-centre, starts at 1, Helvetica 10pt, 36pt margin.
+let out = add_page_numbers(&pdf, &PageNumberOptions::default())?;
+
+// "Page 3 of 12" style:
+let out = add_page_numbers(&pdf, &PageNumberOptions {
+    format: "Page {n} of {total}".to_string(),
+    ..Default::default()
+})?;
+
+// Cover page unnumbered, numbering starts at 1 on page 2:
+let out = add_page_numbers(&pdf, &PageNumberOptions {
+    format: "{n} / {total}".to_string(),
+    pages: Some(vec![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+    ..Default::default()
+})?;
+```
+
+Signature: `add_page_numbers(pdf: &[u8], options: &PageNumberOptions) -> Result<Vec<u8>>`.
+
+## JavaScript
+
+```js
+import { addPageNumbers } from 'dusrelpdf';
+
+const out = addPageNumbers(pdf, { format: 'Page {n} of {total}' });
+```
+
+## Python
+
+```python
+from dusrelpdf import add_page_numbers
+
+out = add_page_numbers(pdf, {"format": "Page {n} of {total}"})
+```
+
+## CLI
+
+```bash
+# Just the number, bottom-centre (default)
+dusrelpdf numbers report.pdf -o numbered.pdf
+
+# "Page 3 of 12"
+dusrelpdf numbers report.pdf --format "Page {n} of {total}" -o numbered.pdf
+
+# Top-right, starting from 0, 12pt
+dusrelpdf numbers report.pdf --format "{n}" --position top-right --start-at 0 --font-size 12 -o numbered.pdf
+```
+
+## Options — PageNumberOptions
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `format` | `"{n}"` | Template with `{n}` (printed number) and `{total}` (page count). **Must contain `{n}`.** |
+| `position` | `BottomCenter` | `top_left`, `top_center`, `top_right`, `bottom_left`, `bottom_center`, `bottom_right`, `center`. |
+| `start_at` | `1` | First printed number. Use `0` to start from 0. |
+| `font_size` | `10.0` | Points. |
+| `font` | `Helvetica` | `helvetica`, `helvetica_bold`, `times_roman`, `courier`, `courier_bold`. |
+| `margin` | `36.0` | Margin from the page edge in points. |
+| `pages` | `None` | Pages to number, 1-based. `None` = every page. |
+| `password`, `compress` | — | From `CommonOptions`. |
+
+## How the number is computed
+
+For a page at position `p` (1-based) in the document, the printed number
+is `start_at + (p − 1)`, and `{total}` is the document's page count. So
+with `start_at: 1`, page 1 prints `1`; with `start_at: 0`, page 1 prints
+`0`. Numbering only some pages (via `pages`) does not renumber the rest —
+`{n}` always follows the document position.
+
+## Errors
+
+| Code | When |
+| --- | --- |
+| `INVALID_ARGUMENT` | The format does not contain `{n}`. |
+| `PAGE_OUT_OF_RANGE` | A listed page is `0` or past the last page. |
+| `INVALID_PDF` | The input is not a parseable PDF. |
+| `ENCRYPTED_PDF` | The input is encrypted and no (or a wrong) password was given. |
+
+<Aside type="caution">
+  Re-running page numbering on an already-numbered PDF **duplicates** the
+  numbers — the old ones are baked into the content stream and cannot be
+  detected or removed. Number each document once, from the original.
+</Aside>

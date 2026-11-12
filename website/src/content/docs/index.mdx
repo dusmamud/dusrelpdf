@@ -1,0 +1,117 @@
+---
+title: dusrelpdf
+description: Offline PDF toolkit — merge, split, extract, remove, reorder, rotate, images-to-PDF, watermark, page numbers and signature-image placement. One Rust core, zero network calls.
+# The docs home lives at /overview/ (not /) because src/pages/index.astro
+# is the site landing page at /. Without this slug the two routes conflict
+# and the build fails rendering /.
+slug: overview
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+dusrelpdf is **one single package** that does the everyday PDF jobs — merge,
+split, extract, remove, reorder, rotate, images-to-PDF, watermark, page
+numbers and signature-image placement — **offline**. No API keys, no network
+calls, no per-file fees, no data leaving your machine. One Rust core, with
+bindings for JavaScript/TypeScript, Python and Rust, plus a CLI.
+
+> These docs are in English for v0.1.0. The error messages in the package
+> itself are bilingual: every error carries both `reason_en` and `reason_hi`
+> (Roman-script Hinglish).
+
+## Install
+
+```bash
+# JavaScript / TypeScript
+npm install dusrelpdf
+
+# Python
+pip install dusrelpdf
+
+# Rust
+cargo add dusrelpdf
+```
+
+Requires Node 18+, Python 3.9+, or Rust 1.85+. The Rust core is built on
+[lopdf 0.47](https://docs.rs/lopdf/latest/lopdf/) (pure Rust, no native
+dependencies).
+
+## Your first operation
+
+```rust
+// Rust — merge two PDFs into one
+use dusrelpdf::{merge_pdfs, MergeOptions};
+
+let a = std::fs::read("a.pdf")?;
+let b = std::fs::read("b.pdf")?;
+let merged = merge_pdfs(&[a, b], &MergeOptions::default())?;
+std::fs::write("merged.pdf", merged)?;
+```
+
+```js
+// JavaScript / TypeScript — same operation, same Rust core (WASM).
+// The npm wrapper uses camelCase names (mergePdfs, extractPagesRange…);
+// the raw WASM exports keep the Rust snake_case spelling.
+import { mergePdfs } from 'dusrelpdf';
+
+const a = new Uint8Array(await fs.readFile('a.pdf'));
+const b = new Uint8Array(await fs.readFile('b.pdf'));
+const merged = mergePdfs([a, b]); // Uint8Array out
+```
+
+```python
+# Python — same operation, same Rust core
+from dusrelpdf import merge_pdfs
+
+with open("a.pdf", "rb") as f:
+    a = f.read()
+with open("b.pdf", "rb") as f:
+    b = f.read()
+merged = merge_pdfs([a, b])  # bytes out
+```
+
+## The 10 operations
+
+| Operation | What it does | Rust function |
+| --- | --- | --- |
+| Merge | Join several PDFs into one, in order | `merge_pdfs` |
+| Split | One PDF → one file per page range | `split_pdf`, `split_pdf_ranges`, `split_each_page` |
+| Extract | Selected pages → a new PDF | `extract_pages`, `extract_pages_range` |
+| Remove | Delete pages | `remove_pages` |
+| Reorder | Change the page order | `reorder_pages` |
+| Rotate | Rotate pages by 90° steps | `rotate_pages` |
+| Images to PDF | One page per image | `images_to_pdf` |
+| Watermark | Text or image stamp over pages | `add_watermark` |
+| Page numbers | `Page {n} of {total}` and friends | `add_page_numbers` |
+| Signature | Place a handwritten signature image | `place_signature` |
+
+Plus two helpers that go with them: `get_pdf_info` (page count, version,
+encryption, title, page sizes) and `bulk_extract` (many extracts in one call,
+one bad selection never kills the whole batch).
+
+## How it works
+
+Every operation takes **bytes in and returns bytes out**. There is no
+streaming mode and no temp files: the whole document lives in memory, the
+operation runs, and you get the result back as bytes. That makes the API the
+same in every language — read a file, call the function, write the result.
+
+Errors never panic on bad input. Every failure returns a stable, machine-
+readable error code (`INVALID_PDF`, `PAGE_OUT_OF_RANGE`, …) plus a reason in
+English and Hindi. See [Error codes](/guides/error-codes/).
+
+<Aside type="caution" title="Honest limits — read this first">
+  v0.1.0 does **not** render PDFs to images and does **not** repair malformed
+  PDFs. Merging drops the original outline trees and rebuilds flat first-page
+  bookmarks; AcroForm, named destinations and embedded files are not carried
+  over. Watermark and page-number text is ASCII only. Signature placement is
+  a raster **image**, not a cryptographic digital signature. Encrypted PDFs
+  need `CommonOptions.password`, and only empty-password PDFs open without
+  one. Full list: [Limitations](/reference/limitations/).
+</Aside>
+
+## Try it in your browser
+
+The [playground](/playground/) runs the real Rust core compiled to
+WebAssembly. Pick a local PDF, run an operation, download the result —
+**your files never leave the browser**.

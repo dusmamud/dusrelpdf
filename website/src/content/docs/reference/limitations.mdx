@@ -1,0 +1,91 @@
+---
+title: Limitations
+description: What dusrelpdf v0.1.0 honestly cannot do — rendering, repair, outlines, forms, ASCII-only stamps, in-memory only, encryption.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+v0.1.0 is deliberately honest about what it cannot do. If you need any of
+the things below, dusrelpdf is the wrong tool for that job right now — and
+we would rather say that here than have you discover it in production.
+
+## No PDF rendering
+
+dusrelpdf cannot turn a PDF page into an image (or a thumbnail). There is
+no PDF → image path at all — lopdf, the engine underneath, has no renderer.
+If you need rendering, use a PDFium-based tool (e.g. `pdfium-render` in
+Rust, or PyMuPDF in Python).
+
+## No tolerant repair of malformed PDFs
+
+A malformed PDF — broken cross-reference table, truncated streams, corrupt
+objects — fails with `INVALID_PDF`. dusrelpdf does not rebuild xref tables
+or guess at missing structure the way qpdf or PdfCraft's tolerant parser
+do. Validate your inputs first, or repair them with qpdf before handing
+them to dusrelpdf.
+
+## Merge drops the original outline trees
+
+Merging rebuilds the outline as **flat first-page bookmarks** (one per
+input, e.g. `Page_1`, `Page_6`). The original nested outline trees are
+gone. This is a lopdf limitation: its README states outlines are not
+supported in merged PDFs.
+
+Also not carried over by merge: **AcroForm** (form fields), **named
+destinations** and **embedded files**. Page content, fonts and images are
+kept; document-level interactive structures are not.
+
+## Watermark and page-number text is ASCII only
+
+Stamps use the built-in base-14 PDF fonts (Helvetica, Times, Courier),
+which only support WinAnsi (Latin) text. Non-Latin scripts — Devanagari,
+Arabic, CJK — cannot be stamped as text. Use an **image** watermark for
+those, or embed a font in a later version.
+
+## Signature is an image, not a digital signature
+
+`place_signature` pastes a raster image (e.g. a transparent PNG of a
+handwritten signature) onto the page. No signature field is created, no
+certificate is involved, nothing is verifiable. It is a visual mark, not
+a legally verifiable signature.
+
+## Whole document in memory
+
+There is no streaming mode. Every operation loads the entire document (and
+its output) into memory. Very large PDFs — hundreds of megabytes — will
+use that much RAM. For batch jobs, process files one at a time rather than
+holding many in memory.
+
+## Encryption is limited
+
+- Empty-password PDFs are auto-decrypted on load — that works.
+- PDFs with a real user password need `CommonOptions.password` (or the
+  CLI's `--password` / Python `{"password": …}`); without it you get
+  `ENCRYPTED_PDF`.
+- Only the encryption schemes lopdf supports are handled; some algorithms
+  may not be fully supported. Encrypting on save is not a feature — output
+  PDFs are unencrypted.
+
+## Other honest edges
+
+- **Transparent PNGs keep alpha via `/SMask`** — that part works, but
+  it is a soft-mask, not a flattened image: very old readers may render it
+  differently.
+- **Page numbers are baked in.** Re-running `add_page_numbers` on an
+  already-numbered PDF duplicates the numbers; there is no way to detect
+  or remove the old ones.
+- **Watermarks paint over content.** A watermark is appended to the
+  content stream, not added as an annotation — it cannot be toggled off or
+  removed by a reader.
+- **Rotation is display rotation.** The `/Rotate` entry changes; content
+  streams are not redrawn. That is lossless, but a reader that ignores
+  `/Rotate` will show the page unrotated.
+- **Text extraction is not a feature.** dusrelpdf does not extract text,
+  tables or layout — use a dedicated extraction library for that.
+
+<Aside type="note" title="What is planned, not promised">
+  Rendering, tolerant repair, outline preservation, form carrying and
+  Unicode stamps are all known gaps. None of them is committed to a
+  release yet — check the [changelog](/changelog/) for what actually
+  shipped.
+</Aside>

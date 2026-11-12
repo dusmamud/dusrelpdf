@@ -1,0 +1,184 @@
+---
+title: CLI
+description: The dusrelpdf command-line tool — every operation, plus info and mock, with JSON output.
+---
+
+The `dusrelpdf` CLI covers every core operation, plus `info` and `mock`.
+Install it with `cargo install dusrelpdf-cli` (see
+[Installation](/guides/installation/)).
+
+Exit code **0** on success, **1** on any error. Errors print the stable
+error code plus the English and Hindi reasons; with `--json`, errors and
+`info` output are machine-readable JSON instead.
+
+## Global flags
+
+| Flag | Meaning |
+| --- | --- |
+| `--json` | Print errors and `info` output as JSON. |
+| `--password <password>` | Password for encrypted PDFs (applies to the command's input). |
+
+## Commands
+
+### `version`
+
+```bash
+dusrelpdf version
+# dusrelpdf 0.1.0
+```
+
+### `info` — PDF summary
+
+```bash
+dusrelpdf info report.pdf
+# report.pdf: 12 pages, PDF 1.7, encrypted: false, title: Annual Report
+
+dusrelpdf --json info report.pdf
+# {"page_count":12,"version":"1.7","encrypted":false,"title":"Annual Report","page_sizes":[[595.0,842.0],...]}
+```
+
+### `merge` — join PDFs
+
+```bash
+dusrelpdf merge a.pdf b.pdf c.pdf -o merged.pdf
+# Merged 3 PDFs into merged.pdf (27 pages)
+```
+
+Uses default `MergeOptions` (keep first input's metadata, one flat bookmark
+per input).
+
+### `split` — one PDF, several files
+
+```bash
+# One file per range
+dusrelpdf split report.pdf --ranges "1-3,4-5" --out-dir out/
+# Split into 2 files in out/   → out/report-1.pdf, out/report-2.pdf
+
+# One file per page
+dusrelpdf split report.pdf --each-page --out-dir out/
+
+# Custom filename prefix (default: the input file's stem)
+dusrelpdf split report.pdf --ranges "1-3,4-5" --out-dir out/ --prefix chapter
+# → out/chapter-1.pdf, out/chapter-2.pdf
+```
+
+`--ranges` and `--each-page` are mutually exclusive; one of them is required.
+`--out-dir` defaults to `.`.
+
+### `extract` — selected pages
+
+```bash
+dusrelpdf extract report.pdf --pages "1-3,5" -o excerpt.pdf
+# Extracted pages 1-3,5 to excerpt.pdf
+```
+
+### `remove` — delete pages
+
+```bash
+dusrelpdf remove report.pdf --pages "2,4" -o trimmed.pdf
+# Removed pages 2,4, wrote trimmed.pdf
+```
+
+### `reorder` — new page order
+
+```bash
+dusrelpdf reorder report.pdf --order "3,1,2" -o reordered.pdf
+# Reordered to 3,1,2, wrote reordered.pdf
+```
+
+The order must be a complete permutation — every page exactly once.
+
+### `rotate` — rotate pages
+
+```bash
+dusrelpdf rotate scan.pdf -o rotated.pdf
+# Rotated by 90°, wrote rotated.pdf
+
+dusrelpdf rotate scan.pdf --angle 180 --pages "1,3" -o rotated.pdf
+dusrelpdf rotate scan.pdf --angle -90 -o rotated.pdf   # -90 → 270
+```
+
+`--angle` defaults to `90` and must be a multiple of 90. `--pages` is a
+range string like `"1,3"`; omit it to rotate every page.
+
+### `images-to-pdf` — images into a PDF
+
+```bash
+dusrelpdf images-to-pdf scan1.png scan2.jpg -o scans.pdf
+# Made scans.pdf from 2 images
+
+dusrelpdf images-to-pdf scan1.png -o scans.pdf --page-size auto
+dusrelpdf images-to-pdf scan1.png -o scans.pdf --page-size letter
+```
+
+`--page-size` is `auto`, `a4` (default) or `letter`.
+
+### `watermark` — text or image stamp
+
+```bash
+dusrelpdf watermark report.pdf --text DRAFT -o marked.pdf
+# Watermarked, wrote marked.pdf
+
+dusrelpdf watermark report.pdf --text CONFIDENTIAL --opacity 0.15 --angle 0 --pages "1-2" -o marked.pdf
+dusrelpdf watermark report.pdf --image logo.png --opacity 0.5 --angle 0 -o marked.pdf
+```
+
+Defaults: `--opacity 0.3`, `--angle 45`, `--font-size 48`, all pages.
+`--text` and `--image` are mutually exclusive.
+
+### `numbers` — page numbers
+
+```bash
+dusrelpdf numbers report.pdf -o numbered.pdf
+# Numbered, wrote numbered.pdf
+
+dusrelpdf numbers report.pdf --format "Page {n} of {total}" -o numbered.pdf
+dusrelpdf numbers report.pdf --format "{n}" --position top-right --start-at 0 --font-size 12 -o numbered.pdf
+```
+
+Defaults: `--format "{n}"`, `--position bottom-center`, `--start-at 1`,
+`--font-size 10`, all pages. Position is one of `top-left`, `top-center`,
+`top-right`, `bottom-left`, `bottom-center`, `bottom-right`, `center`
+(`top-centre` / `bottom-centre` / `centre` spellings also work).
+
+### `sign` — signature image
+
+```bash
+dusrelpdf sign contract.pdf --image signature.png -o signed.pdf
+# Signed, wrote signed.pdf
+
+dusrelpdf sign contract.pdf --image signature.png --page 2 --x 360 --y 80 --width 180 -o signed.pdf
+```
+
+Defaults: `--page 1`, `--x 36`, `--y 36` (points from the bottom-left),
+`--width 144` when unset (height from the aspect ratio). Transparent PNG
+recommended.
+
+### `mock` — test PDF
+
+```bash
+# A 3-page mock PDF for tests and demos
+dusrelpdf mock -o mock.pdf
+dusrelpdf mock --pages 5 -o mock.pdf
+# Mock PDF with 5 pages wrote to mock.pdf
+```
+
+Every page says `Page <n>` in Courier on an A4 MediaBox.
+
+## Exit codes and errors
+
+```bash
+$ dusrelpdf rotate doc.pdf --angle 45 -o out.pdf
+ERROR INVALID_ANGLE: Rotation angle 45 is not a multiple of 90 degrees. Use 0, 90, 180 or 270.
+(Rotation angle 45 90 ka multiple nahi hai. 0, 90, 180 ya 270 use karein.)
+$ echo $?
+1
+```
+
+With `--json` the same error is a single JSON object on stderr:
+
+```json
+{"ok":false,"code":"INVALID_ANGLE","reason_en":"Rotation angle 45 is not a multiple of 90 degrees. Use 0, 90, 180 or 270.","reason_hi":"Rotation angle 45 90 ka multiple nahi hai. 0, 90, 180 ya 270 use karein."}
+```
+
+All error codes are listed in [Error codes](/guides/error-codes/).

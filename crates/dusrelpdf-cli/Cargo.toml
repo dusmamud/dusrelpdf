@@ -1,0 +1,18 @@
+[package]
+name = "dusrelpdf-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Command-line interface for dusrelpdf — offline PDF toolkit"
+publish = false
+
+[[bin]]
+name = "dusrelpdf"
+path = "src/main.rs"
+
+[dependencies]
+dusrelpdf = { path = "../dusrelpdf" }
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"

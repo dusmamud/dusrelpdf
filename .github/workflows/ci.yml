@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  rust:
+    name: Rust fmt / clippy / test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+      - name: CLI smoke test
+        run: |
+          cargo run -q -p dusrelpdf-cli -- --version
+          cargo run -q -p dusrelpdf-cli -- version
+          cargo run -q -p dusrelpdf-cli -- mock --pages 3 -o /tmp/mock.pdf
+          cargo run -q -p dusrelpdf-cli -- info /tmp/mock.pdf
+          cargo run -q -p dusrelpdf-cli -- extract /tmp/mock.pdf --pages "1-2" -o /tmp/extracted.pdf
+          cargo run -q -p dusrelpdf-cli -- rotate /tmp/mock.pdf --angle 90 -o /tmp/rotated.pdf
+          cargo run -q -p dusrelpdf-cli -- numbers /tmp/mock.pdf --format "Page {n} of {total}" -o /tmp/numbered.pdf
+
+  js:
+    name: TypeScript wrapper
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: packages/js/package-lock.json
+      - name: install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: install
+        working-directory: packages/js
+        run: npm ci
+      - name: build + typecheck
+        working-directory: packages/js
+        run: |
+          npm run build
+          npm run typecheck
+      - name: test
+        working-directory: packages/js
+        run: npm test
+
+  # Python (wheel build + pytest) is covered by .github/workflows/python.yml
+  # WASM build is covered by .github/workflows/wasm.yml
+  # Website build is covered by .github/workflows/website.yml

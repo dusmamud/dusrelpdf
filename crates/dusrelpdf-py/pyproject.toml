@@ -1,0 +1,28 @@
+[build-system]
+requires = ["maturin>=1,<2"]
+build-backend = "maturin"
+
+[project]
+name = "dusrelpdf"
+version = "0.1.0"
+description = "Offline PDF toolkit — merge, split, extract, reorder, rotate, watermark, page numbers, images-to-PDF and signature-image placement. One Rust core, no network, no uploads."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "dusmamud" }]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+pydantic = ["pydantic>=2"]
+dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/dusmamud/dusrelpdf"
+
+[tool.maturin]
+features = ["pyo3/abi3-py310"]
+module-name = "dusrelpdf._native"
+python-source = "python"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

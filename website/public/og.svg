@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#0f172a"/>
+  <g transform="translate(90,215)">
+    <path d="M20 0h78l36 36v124a14 14 0 0 1-14 14H20a14 14 0 0 1-14-14V14A14 14 0 0 1 20 0z" fill="#f8fafc"/>
+    <path d="M98 0v36h36" fill="#cbd5e1"/>
+    <rect x="26" y="72" width="88" height="10" rx="5" fill="#0f172a"/>
+    <rect x="26" y="96" width="88" height="10" rx="5" fill="#0f172a"/>
+    <rect x="26" y="120" width="58" height="10" rx="5" fill="#22c55e"/>
+  </g>
+  <text x="280" y="310" font-family="system-ui, sans-serif" font-size="96" font-weight="800" fill="#f8fafc">dusrelpdf</text>
+  <text x="280" y="380" font-family="system-ui, sans-serif" font-size="36" fill="#94a3b8">Offline PDF toolkit — merge, split, rotate, watermark.</text>
+</svg>

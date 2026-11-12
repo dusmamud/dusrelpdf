@@ -1,0 +1,170 @@
+---
+title: Rust API
+description: The dusrelpdf Rust crate — every function, option struct and type, with signatures.
+---
+
+The Rust crate is the core: `cargo add dusrelpdf` (Rust 1.85+, edition
+2024). Everything here is also the contract the JavaScript and Python
+bindings mirror.
+
+```toml
+[dependencies]
+dusrelpdf = "0.1"
+```
+
+## Conventions
+
+- **Bytes in, bytes out.** Every operation takes `&[u8]` (or `&[Vec<u8>]`)
+  and returns `Result<Vec<u8>>` (or `Result<Vec<Vec<u8>>>` for split).
+- **Never panics on bad input.** Failures are `Err(DusrelError)` with a
+  stable `ErrorCode` — see [Error codes](/guides/error-codes/).
+- **1-based pages** everywhere. Page `0` is always an error.
+- **Points** (1/72 inch) for all sizes and positions.
+- `VERSION: &str` — the crate version, lockstep with the npm / PyPI
+  packages (`"0.1.0"`).
+
+## Functions
+
+```rust
+// Merge
+pub fn merge_pdfs(inputs: &[Vec<u8>], options: &MergeOptions) -> Result<Vec<u8>>;
+pub fn merge_pdfs_default(inputs: &[Vec<u8>]) -> Result<Vec<u8>>;
+
+// Split
+pub fn split_pdf(pdf: &[u8], ranges: &[Vec<u32>], options: &PageSetOptions)
+    -> Result<Vec<Vec<u8>>>;
+pub fn split_pdf_ranges(pdf: &[u8], ranges: &str, options: &PageSetOptions)
+    -> Result<Vec<Vec<u8>>>;
+pub fn split_each_page(pdf: &[u8], options: &PageSetOptions) -> Result<Vec<Vec<u8>>>;
+
+// Extract / remove / reorder / rotate
+pub fn extract_pages(pdf: &[u8], pages: &[u32], options: &PageSetOptions) -> Result<Vec<u8>>;
+pub fn extract_pages_range(pdf: &[u8], range: &str, options: &PageSetOptions) -> Result<Vec<u8>>;
+pub fn remove_pages(pdf: &[u8], pages: &[u32], options: &PageSetOptions) -> Result<Vec<u8>>;
+pub fn reorder_pages(pdf: &[u8], order: &[u32], options: &PageSetOptions) -> Result<Vec<u8>>;
+pub fn rotate_pages(pdf: &[u8], options: &RotateOptions) -> Result<Vec<u8>>;
+
+// Stamping
+pub fn images_to_pdf(images: &[Vec<u8>], options: &ImagesToPdfOptions) -> Result<Vec<u8>>;
+pub fn add_watermark(pdf: &[u8], options: &WatermarkOptions) -> Result<Vec<u8>>;
+pub fn add_page_numbers(pdf: &[u8], options: &PageNumberOptions) -> Result<Vec<u8>>;
+pub fn place_signature(pdf: &[u8], signature_image: &[u8], options: &SignatureOptions)
+    -> Result<Vec<u8>>;
+
+// Info & bulk
+pub fn get_pdf_info(pdf: &[u8], common: &CommonOptions) -> Result<PdfInfo>;
+pub fn bulk_extract(pdf: &[u8], selections: &[Vec<u32>], options: &PageSetOptions)
+    -> Vec<BulkItem>;
+
+// Range parsing (also public, for your own tooling)
+pub fn parse_page_selection(input: &str, total: u32) -> Result<Vec<u32>>;
+pub fn parse_page_ranges(input: &str, total: u32) -> Result<Vec<Vec<u32>>>;
+```
+
+`bulk_extract` is the only function that does not return a `Result` — it
+returns one `BulkItem` per selection, and a failed item carries its own
+error instead of aborting the batch.
+
+## Option structs
+
+All structs are `serde`-serialisable, so the bindings pass the same JSON
+shape across languages. Full field tables and defaults:
+[Options](/guides/options/).
+
+```rust
+pub struct CommonOptions     { pub password: Option<String>, pub compress: bool }
+pub struct MergeOptions      { pub common: CommonOptions, pub preserve_metadata: bool, pub add_bookmarks: bool }
+pub struct PageSetOptions    { pub common: CommonOptions }
+pub struct WatermarkOptions  { pub common: CommonOptions, pub text: Option<String>, pub image: Option<Vec<u8>>, pub opacity: f32, pub rotation: f32, pub font_size: f32, pub font: BaseFont, pub position: Position, pub x: Option<f32>, pub y: Option<f32>, pub pages: Option<Vec<u32>>, pub image_width: Option<f32>, pub image_height: Option<f32> }
+pub struct PageNumberOptions { pub common: CommonOptions, pub format: String, pub position: Position, pub start_at: u32, pub font_size: f32, pub font: BaseFont, pub margin: f32, pub pages: Option<Vec<u32>> }
+pub struct RotateOptions     { pub common: CommonOptions, pub angle: i32, pub pages: Option<Vec<u32>> }
+pub struct ImagesToPdfOptions{ pub page_size: PageSize, pub fit: ImageFit, pub background: [f32; 3] }
+pub struct SignatureOptions  { pub common: CommonOptions, pub page: u32, pub x: f32, pub y: f32, pub width: Option<f32>, pub height: Option<f32> }
+
+pub enum Position { TopLeft, TopCenter, TopRight, BottomLeft, BottomCenter, BottomRight, Center }
+pub enum BaseFont { Helvetica, HelveticaBold, TimesRoman, Courier, CourierBold }
+pub enum PageSize { Auto, A4, Letter, Custom { width: f32, height: f32 } }
+pub enum ImageFit { Contain, Fill }
+```
+
+`CommonOptions::with_password("secret")` is the shortcut for opening an
+encrypted PDF.
+
+## Result types
+
+```rust
+pub struct PdfInfo {
+    pub page_count: u32,
+    pub version: String,      // e.g. "1.4"
+    pub encrypted: bool,      // trailer has an /Encrypt entry
+    pub title: Option<String>,
+    pub page_sizes: Vec<(f32, f32)>, // (width, height) in points, in order
+}
+
+pub struct BulkItem {
+    pub index: usize,
+    pub pdf: Option<Vec<u8>>,
+    pub error_code: Option<String>,
+    pub error: Option<String>, // English reason
+}
+```
+
+## Errors
+
+```rust
+pub struct DusrelError {
+    pub code: ErrorCode,      // e.g. ErrorCode::PageOutOfRange
+    pub reason_en: String,
+    pub reason_hi: String,
+}
+
+impl DusrelError {
+    pub fn code_str(&self) -> &'static str; // e.g. "PAGE_OUT_OF_RANGE"
+}
+
+pub enum ErrorCode {
+    InvalidPdf, EncryptedPdf, PageOutOfRange, EmptyInput, InvalidRange,
+    InvalidAngle, InvalidImage, InvalidArgument, InvalidType, OperationFailed,
+}
+```
+
+`DusrelError` displays as `"CODE: reason_en"` and implements
+`std::error::Error`. The `Result<T>` alias is `std::result::Result<T,
+DusrelError>`.
+
+## Modules
+
+| Module | Contents |
+| --- | --- |
+| `dusrelpdf::ops` | merge, split, extract, remove, reorder, rotate, info, bulk |
+| `dusrelpdf::stamp` | images-to-PDF, watermark, page numbers, signature |
+| `dusrelpdf::options` | all option structs and enums |
+| `dusrelpdf::error` | `DusrelError`, `ErrorCode`, `Result` |
+| `dusrelpdf::types` | `PdfInfo`, `BulkItem` |
+| `dusrelpdf::range` | `parse_page_selection`, `parse_page_ranges` |
+| `dusrelpdf::fixtures` | `make_test_pdf(pages, title)` — mock PDFs for tests |
+| `dusrelpdf::common` | low-level helpers (load/save, image streams, fonts) |
+
+## Example — a small pipeline
+
+```rust
+use dusrelpdf::*;
+
+fn main() -> Result<()> {
+    let a = std::fs::read("a.pdf")?;
+    let b = std::fs::read("b.pdf")?;
+
+    // 1. Merge, 2. number the pages, 3. watermark, 4. write out.
+    let merged = merge_pdfs(&[a, b], &MergeOptions::default())?;
+    let numbered = add_page_numbers(&merged, &PageNumberOptions {
+        format: "Page {n} of {total}".to_string(),
+        ..Default::default()
+    })?;
+    let marked = add_watermark(&numbered, &WatermarkOptions::default())?;
+    std::fs::write("out.pdf", marked)?;
+    Ok(())
+}
+```
+
+Each step is pure bytes-in/bytes-out, so steps compose exactly like this —
+no temp files, no shared state.

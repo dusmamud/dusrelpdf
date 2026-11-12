@@ -1,0 +1,114 @@
+---
+title: Installation
+description: Install dusrelpdf from npm, PyPI or crates.io — one package, all 10 operations.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+dusrelpdf is **one package** on every registry. One install gives you all
+10 operations — merge, split, extract, remove, reorder, rotate, images-to-
+PDF, watermark, page numbers and signature placement. There are no
+per-feature subpackages.
+
+## JavaScript / TypeScript
+
+```bash
+npm install dusrelpdf
+```
+
+```js
+import { mergePdfs, extractPagesRange } from 'dusrelpdf';
+```
+
+Requires Node 18+. The npm package ships the Rust core compiled to WebAssembly
+plus a small TypeScript wrapper — no native build step on install, no
+`node-gyp`. It works in Node and in the browser (see the
+[playground](/playground/)).
+
+<Aside>
+  The JavaScript API uses **camelCase** names (`mergePdfs`,
+  `extractPagesRange`, `addWatermark`) and camelCase option keys
+  (`fontSize`, `startAt`, `pageSize`, `preserveMetadata`). Failures throw
+  a `DusrelError` with `.code`, `.reasonEn` and `.reasonHi`. See
+  [JavaScript API](/reference/js-api/).
+</Aside>
+
+## Python
+
+```bash
+pip install dusrelpdf
+```
+
+```python
+from dusrelpdf import merge_pdfs, extract_pages_range
+```
+
+Requires Python 3.9+. The wheel ships the Rust core as a native extension —
+no compiler needed at install time.
+
+<Aside type="note" title="Python API shape">
+  The Python functions keep the Rust `snake_case` names
+  (`merge_pdfs`, `extract_pages_range`) with dict options using the same
+  `snake_case` keys. Errors raise `dusrelpdf.DusrelError` (`.code`,
+  `.reason_en`, `.reason_hi`). See [Python API](/reference/python-api/).
+</Aside>
+
+## Rust
+
+```bash
+cargo add dusrelpdf
+```
+
+```toml
+# Cargo.toml
+[dependencies]
+dusrelpdf = "0.1"
+```
+
+Requires Rust 1.85+ (edition 2024). The crate is pure Rust on top of
+lopdf 0.47 — no C libraries, no system dependencies.
+
+## CLI
+
+The CLI ships with the Rust crate. Install it with Cargo:
+
+```bash
+cargo install dusrelpdf-cli
+dusrelpdf --help
+```
+
+Or build it from the repo:
+
+```bash
+cargo run -p dusrelpdf-cli -- --help
+```
+
+The CLI covers every operation (`merge`, `split`, `extract`, `remove`,
+`reorder`, `rotate`, `images-to-pdf`, `watermark`, `numbers`, `sign`) plus
+`info` and `mock`. See [CLI](/reference/cli/).
+
+## Verify the install
+
+```bash
+# CLI
+dusrelpdf version
+# dusrelpdf 0.1.0
+```
+
+```js
+// JavaScript
+import { version } from 'dusrelpdf';
+console.log(version()); // '0.1.0'
+```
+
+```python
+# Python
+import dusrelpdf
+print(dusrelpdf.__version__)  # '0.1.0'
+```
+
+## No network, no account
+
+dusrelpdf never makes a network call and needs no API key or account. Every
+operation runs on the bytes you hand it, on your machine. That also means
+there is nothing to configure — if the install above worked, you are done.

@@ -1,0 +1,85 @@
+---
+title: Merge
+description: Join several PDFs into one, in input order — merge_pdfs and MergeOptions.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Join several PDFs into one, in input order. All pages of the first input,
+then all pages of the second, and so on.
+
+## Rust
+
+```rust
+use dusrelpdf::{merge_pdfs, merge_pdfs_default, MergeOptions};
+
+let a = std::fs::read("a.pdf")?;
+let b = std::fs::read("b.pdf")?;
+
+// Defaults: keep the first input's metadata, add one bookmark per input.
+let merged = merge_pdfs(&[a, b], &MergeOptions::default())?;
+
+// Shortcut when the defaults are fine:
+let merged = merge_pdfs_default(&[a, b])?;
+```
+
+Signature: `merge_pdfs(inputs: &[Vec<u8>], options: &MergeOptions) -> Result<Vec<u8>>`.
+
+## JavaScript
+
+```js
+import { mergePdfs } from 'dusrelpdf';
+
+const merged = mergePdfs([aBytes, bBytes]); // Uint8Array in, Uint8Array out
+const merged2 = mergePdfs([aBytes, bBytes], { preserveMetadata: false });
+```
+
+## Python
+
+```python
+from dusrelpdf import merge_pdfs
+
+merged = merge_pdfs([a, b])  # list[bytes] in, bytes out
+```
+
+## CLI
+
+```bash
+dusrelpdf merge a.pdf b.pdf c.pdf -o merged.pdf
+# Merged 3 PDFs into merged.pdf (27 pages)
+```
+
+## Options — MergeOptions
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `preserve_metadata` | `true` | Copy the first input's document info (title/author) into the output. |
+| `add_bookmarks` | `true` | Add a flat outline bookmark for the first page of each input. |
+| `password` | `None` | Password for encrypted inputs (applies to every input). |
+| `compress` | `true` | Compress output streams. |
+
+## Behaviour
+
+- **Order is preserved.** Output page 1 is input 1's page 1; there is no
+  sorting or interleaving.
+- **Inherited attributes are materialised** before pages move between
+  documents (MediaBox, CropBox, Resources, Rotate), so a page that inherited
+  its size from a parent node keeps it after merging.
+- **Zero-count pages are adjusted** (`adjust_zero_pages`) so the output is a
+  clean, well-formed document.
+
+## Errors
+
+| Code | When |
+| --- | --- |
+| `EMPTY_INPUT` | No inputs at all. |
+| `INVALID_PDF` | An input is not a PDF, cannot be parsed, has no catalog, or has no pages. |
+| `ENCRYPTED_PDF` | An input is encrypted and no (or a wrong) password was given. |
+
+<Aside type="caution" title="What merge does not keep">
+  Merging **drops the original outline trees** and rebuilds flat first-page
+  bookmarks (one per input, named `Page_1`, `Page_6`, …). AcroForm, named
+  destinations and embedded files are **not** carried over. This is a lopdf
+  limitation, not a bug in dusrelpdf — see
+  [Limitations](/reference/limitations/).
+</Aside>

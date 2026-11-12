@@ -1,0 +1,24 @@
+[package]
+name = "dusrelpdf-py"
+version.workspace = true
+# PyO3 0.22 is not edition-2024 clean: this crate MUST stay on
+# edition 2021 even though the workspace defaults to 2024
+# (same lesson as indycheck-py v0.2.1).
+edition = "2021"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Python bindings for dusrelpdf — thin PyO3 wrappers over the Rust core"
+publish = false
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+dusrelpdf = { path = "../dusrelpdf" }
+pyo3 = { version = "0.22", features = ["abi3-py310", "extension-module"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

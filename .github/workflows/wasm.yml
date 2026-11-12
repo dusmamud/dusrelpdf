@@ -1,0 +1,32 @@
+name: WASM
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  wasm:
+    name: wasm-pack build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: build (web)
+        run: wasm-pack build --target web crates/dusrelpdf-wasm
+      - name: build (bundler)
+        run: wasm-pack build --target bundler crates/dusrelpdf-wasm
+      - name: check wasm exports
+        run: |
+          grep -q "merge_pdfs" crates/dusrelpdf-wasm/pkg/dusrelpdf_wasm.d.ts
+          grep -q "split_pdf" crates/dusrelpdf-wasm/pkg/dusrelpdf_wasm.d.ts
+          grep -q "place_signature" crates/dusrelpdf-wasm/pkg/dusrelpdf_wasm.d.ts
+          grep -q "get_pdf_info" crates/dusrelpdf-wasm/pkg/dusrelpdf_wasm.d.ts
+          grep -q "bulk_extract" crates/dusrelpdf-wasm/pkg/dusrelpdf_wasm.d.ts
+          ls -lh crates/dusrelpdf-wasm/pkg/*.wasm

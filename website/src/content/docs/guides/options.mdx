@@ -1,0 +1,183 @@
+---
+title: Options
+description: The pro control layer — CommonOptions, MergeOptions, WatermarkOptions, PageNumberOptions, RotateOptions, ImagesToPdfOptions and SignatureOptions, with every default.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Every operation has a plain form (uses the defaults) and a `*_with_options`
+form in spirit: in Rust every function takes an options struct; in
+JavaScript/Python you pass a plain object/dict with the same field names.
+Missing fields always use the Rust defaults — you only set what you care
+about.
+
+All sizes are in **points** (1 pt = 1/72 inch; A4 is 595 × 842 pt). Page
+numbers are **1-based** everywhere.
+
+The field names below are the Rust names (`font_size`, `start_at`,
+`page_size`, `preserve_metadata`). Python uses the same `snake_case`
+keys; JavaScript uses **camelCase** keys (`fontSize`, `startAt`,
+`pageSize`, `preserveMetadata`) — see [JavaScript API](/reference/js-api/).
+
+## CommonOptions — shared by every operation that reads a PDF
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `password` | string? | `None` | Password for an encrypted PDF. Empty-password PDFs open without it. |
+| `compress` | boolean | `true` | Compress output streams. Set `false` for faster saves. |
+
+```rust
+use dusrelpdf::{CommonOptions, PageSetOptions, extract_pages_range};
+
+// Open an encrypted PDF:
+let opts = PageSetOptions {
+    common: CommonOptions::with_password("secret"),
+    ..Default::default()
+};
+let out = extract_pages_range(&pdf, "1-3", &opts)?;
+```
+
+`CommonOptions` is flattened into the other options structs, so in
+JavaScript/Python you pass `password` / `compress` at the top level of the
+options object — there is no nested `common` object:
+
+```js
+// JavaScript (camelCase function + option keys — see the JS API page):
+extractPagesRange(pdf, '1-3', { password: 'secret', compress: false });
+```
+
+<Aside type="caution">
+  Only empty-password decryption happens automatically on load. A PDF with a
+  real user password **needs** `password` — without it you get
+  `ENCRYPTED_PDF`. And `compress: false` only skips compression; the output
+  is still a fully valid PDF.
+</Aside>
+
+## MergeOptions
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `preserve_metadata` | boolean | `true` | Copy the first input's document info (title/author) into the output. |
+| `add_bookmarks` | boolean | `true` | Add a flat outline bookmark for the first page of each input. |
+| `password`, `compress` | — | — | From `CommonOptions` (applies to every input). |
+
+```rust
+use dusrelpdf::{merge_pdfs, MergeOptions};
+
+let out = merge_pdfs(&inputs, &MergeOptions {
+    preserve_metadata: false,
+    add_bookmarks: false,
+    ..Default::default()
+})?;
+```
+
+Note: outlines are **always** rebuilt as flat first-page bookmarks — lopdf
+cannot preserve the original outline trees. See
+[Limitations](/reference/limitations/).
+
+## PageSetOptions — split / extract / remove
+
+`PageSetOptions` carries only `CommonOptions` (`password`, `compress`). The
+page selection itself is an argument, not an option: a `&[u32]` list or a
+range string like `"1-3,5"`.
+
+## WatermarkOptions
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `text` | string? | `"DRAFT"` | Watermark text. Mutually exclusive with `image` — set exactly one. |
+| `image` | bytes? | `None` | Watermark image bytes (PNG/JPEG). Mutually exclusive with `text`. |
+| `opacity` | float | `0.3` | 0.0–1.0. Outside that range → `INVALID_ARGUMENT`. |
+| `rotation` | float | `45.0` | Degrees, clockwise (text default). |
+| `font_size` | float | `48.0` | Points (text only). |
+| `font` | `BaseFont` | `Helvetica` | `helvetica`, `helvetica_bold`, `times_roman`, `courier`, `courier_bold`. |
+| `position` | `Position` | `Center` | `top_left`, `top_center`, `top_right`, `bottom_left`, `bottom_center`, `bottom_right`, `center`. |
+| `x`, `y` | float? | `None` | Custom position in points from the bottom-left corner. Used only when both are set. |
+| `pages` | number[]? | `None` | Pages to watermark, 1-based. `None` = every page. |
+| `image_width`, `image_height` | float? | `None` | Image size in points. `None` = natural size at 96 dpi. |
+| `password`, `compress` | — | — | From `CommonOptions`. |
+
+```rust
+use dusrelpdf::{add_watermark, WatermarkOptions, Position};
+
+let out = add_watermark(&pdf, &WatermarkOptions {
+    text: Some("CONFIDENTIAL".to_string()),
+    opacity: 0.15,
+    rotation: 0.0,
+    position: Position::BottomRight,
+    pages: Some(vec![1, 2]),
+    ..Default::default()
+})?;
+```
+
+The watermark paints **over** the page content (appended to the content
+stream, not an annotation). Text is **ASCII only** — use an image watermark
+for other scripts.
+
+## PageNumberOptions
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `format` | string | `"{n}"` | Template with `{n}` (printed number) and `{total}` (page count). Must contain `{n}`. |
+| `position` | `Position` | `BottomCenter` | Where the number goes. |
+| `start_at` | number | `1` | First printed number. Use `0` to start from 0. |
+| `font_size` | float | `10.0` | Points. |
+| `font` | `BaseFont` | `Helvetica` | As above. |
+| `margin` | float | `36.0` | Margin from the page edge in points. |
+| `pages` | number[]? | `None` | Pages to number, 1-based. `None` = every page. |
+| `password`, `compress` | — | — | From `CommonOptions`. |
+
+`{n}` is `start_at + (page − 1)`, so numbering a 12-page document with
+`start_at: 0` prints `0` on page 1 and `11` on page 12. Numbers are baked
+into the content stream — re-running the operation duplicates them.
+
+## RotateOptions
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `angle` | integer | `90` | Rotation in degrees; **must be a multiple of 90**. Negative angles are normalised (`-90` → `270`). |
+| `pages` | number[]? | `None` | Pages to rotate, 1-based. `None` = every page. |
+| `password`, `compress` | — | — | From `CommonOptions`. |
+
+Rotation is display rotation: the page's `/Rotate` entry is updated, the
+content stream is not redrawn. Inherited rotation is honoured — a page
+inheriting 90° rotated by another 90° ends up at 180°, not 90°.
+
+## ImagesToPdfOptions
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `page_size` | `PageSize` | `A4` | `auto` (one page per image, sized to the image, 1 px = 1 pt), `a4` (595 × 842 pt), `letter` (612 × 792 pt), or `custom: {width, height}`. |
+| `fit` | `ImageFit` | `Contain` | `contain` (scale to fit, aspect preserved) or `fill` (stretch to the whole page). |
+| `background` | `[r, g, b]` | `[1.0, 1.0, 1.0]` | Background colour, 0.0–1.0 per channel, for letterboxed areas. |
+
+Images are decoded with the Rust `image` crate (PNG, JPEG, WebP, …).
+JPEGs are passed through as DCTDecode; other formats are stored as RGB
+with a `/SMask` soft-mask, so transparent PNGs keep their alpha.
+
+## SignatureOptions
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `page` | number | `1` | Target page, 1-based. |
+| `x`, `y` | float | `36.0` | Position in points from the bottom-left corner. |
+| `width`, `height` | float? | `None` | Display size in points. `None` width = 144 pt (2 inches), height from the image aspect ratio. |
+| `password`, `compress` | — | — | From `CommonOptions`. |
+
+This places a signature **image**. It is not a cryptographic digital
+signature — no signature field, no certificate, nothing verifiable.
+
+## Enums
+
+**Position** (snake_case in JSON): `top_left`, `top_center`, `top_right`,
+`bottom_left`, `bottom_center`, `bottom_right`, `center` (default).
+
+**BaseFont**: `helvetica` (default), `helvetica_bold`, `times_roman`,
+`courier`, `courier_bold`. These are the built-in base-14 PDF fonts — no
+embedding needed, but only WinAnsi (Latin) text is supported, so watermark
+and page-number text is ASCII only.
+
+**PageSize**: `auto`, `a4` (default), `letter`, `custom` (with `width` and
+`height` in points).
+
+**ImageFit**: `contain` (default), `fill`.

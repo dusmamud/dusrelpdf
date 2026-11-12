@@ -1,0 +1,186 @@
+---
+title: JavaScript API
+description: The dusrelpdf JavaScript / TypeScript API — camelCase wrapper over the WASM core, Uint8Array in and out, DusrelError on failure.
+---
+
+The npm package (`npm install dusrelpdf`) ships the Rust core compiled to
+WebAssembly plus a small TypeScript wrapper. The wrapper uses **camelCase**
+names and option keys (`mergePdfs`, `fontSize`, `startAt`, `pageSize`,
+`preserveMetadata`); it translates them to the Rust `snake_case` shape
+before calling WASM. Enum values stay `snake_case` strings
+(`"bottom_center"`, `"helvetica_bold"`).
+
+```js
+import { mergePdfs, extractPagesRange, version } from 'dusrelpdf';
+```
+
+## Conventions
+
+- **Binary in, binary out.** PDF and image arguments are `Uint8Array`s
+  (a Node `Buffer` is a `Uint8Array` subclass, so Buffers are accepted
+  as-is); results are `Uint8Array`s (or `Array<Uint8Array>` for split).
+  Any non-`Uint8Array` input throws a `DusrelError` with code
+  `INVALID_TYPE` — never a raw `TypeError`.
+- **Everything is synchronous.** The WASM calls are synchronous, so
+  there is nothing to `await`.
+- **Options are plain objects** with camelCase keys. Every field is
+  optional: omitted fields use the Rust defaults.
+- **`CommonOptions` is flattened.** Pass `password` / `compress` at the
+  top level of the options object — there is no nested `common` object.
+- **Errors throw a `DusrelError`** — an `Error` subclass with `.code`
+  (stable, machine-readable), `.reasonEn` and `.reasonHi`. Branch on
+  `.code`, never on the message. (Underneath, the raw WASM exports throw
+  the same failure as a JSON string; the wrapper converts it.)
+- **Zod schemas** are also exported for the options (see the package's
+  `zod.ts`) if you want runtime validation of option objects.
+
+## Functions
+
+```ts
+// Merge
+mergePdfs(inputs: unknown, options?: MergeOptions): Uint8Array
+// Split
+splitPdf(pdf: unknown, ranges: unknown, options?: SplitOptions): Uint8Array[]
+splitPdfRanges(pdf: unknown, ranges: unknown, options?: SplitOptions): Uint8Array[]
+splitEachPage(pdf: unknown, options?: SplitOptions): Uint8Array[]
+// Extract / remove / reorder / rotate
+extractPages(pdf: unknown, pages: unknown, options?: ExtractOptions): Uint8Array
+extractPagesRange(pdf: unknown, range: unknown, options?: ExtractOptions): Uint8Array
+removePages(pdf: unknown, pages: unknown, options?: RemoveOptions): Uint8Array
+reorderPages(pdf: unknown, order: unknown, options?: ReorderOptions): Uint8Array
+rotatePages(pdf: unknown, options?: RotateOptions): Uint8Array
+// Stamping
+imagesToPdf(images: unknown, options?: ImagesToPdfOptions): Uint8Array
+addWatermark(pdf: unknown, options?: WatermarkOptions): Uint8Array
+addPageNumbers(pdf: unknown, options?: PageNumberOptions): Uint8Array
+placeSignature(pdf: unknown, signature: unknown, options?: SignatureOptions): Uint8Array
+// Info & bulk
+getPdfInfo(pdf: unknown, options?: CommonOptions): PdfInfo
+bulkExtract(pdf: unknown, selections: unknown, options?: ExtractOptions): BulkExtractItem[]
+version(): string
+makeTestPdf(pages: number): Uint8Array
+```
+
+`PdfInfo` is `{ pageCount, version, encrypted, title?, pageSizes: [w, h][] }`
+(camelCase keys). `BulkExtractItem` is `{ index, pdf?: Uint8Array,
+errorCode?: string, error?: string }` — a failed item's `pdf` is absent,
+never `null`.
+
+## Examples
+
+```js
+import { mergePdfs, extractPagesRange, addWatermark, getPdfInfo } from 'dusrelpdf';
+import { readFile, writeFile } from 'node:fs/promises';
+
+const a = new Uint8Array(await readFile('a.pdf'));
+const b = new Uint8Array(await readFile('b.pdf'));
+
+const merged = mergePdfs([a, b], { preserveMetadata: true });
+await writeFile('merged.pdf', merged);
+
+const excerpt = extractPagesRange(merged, '1-3,5');
+const marked = addWatermark(excerpt, { text: 'DRAFT', opacity: 0.3 });
+
+const info = getPdfInfo(marked);
+console.log(info.pageCount, info.version, info.encrypted);
+// 4 '1.7' false
+```
+
+### Error handling
+
+```js
+import { rotatePages, DusrelError } from 'dusrelpdf';
+
+try {
+  rotatePages(pdf, { angle: 45 });
+} catch (e) {
+  if (e instanceof DusrelError) {
+    console.log(e.code);      // 'INVALID_ANGLE'
+    console.log(e.reasonEn);  // 'Rotation angle 45 is not a multiple of 90 degrees. ...'
+    console.log(e.reasonHi);  // 'Rotation angle 45 90 ka multiple nahi hai. ...'
+  }
+  throw e;
+}
+```
+
+### Watermark images
+
+Pass image bytes as a `Uint8Array` — the wrapper converts them for WASM:
+
+```js
+const logo = new Uint8Array(await readFile('logo.png'));
+const out = addWatermark(pdf, {
+  image: logo,
+  opacity: 0.5,
+  rotation: 0,
+});
+// Default text watermark is "DRAFT" when neither text nor image is given.
+```
+
+### bulkExtract
+
+One bad selection fails only its own item:
+
+```js
+import { bulkExtract } from 'dusrelpdf';
+
+const items = bulkExtract(pdf, [[1, 2], [99], [3]]);
+for (const item of items) {
+  if (item.pdf) {
+    await writeFile(`part-${item.index + 1}.pdf`, item.pdf);
+  } else {
+    console.error(item.index, item.errorCode, item.error);
+  }
+}
+```
+
+### Test data
+
+```js
+import { makeTestPdf, extractPagesRange } from 'dusrelpdf';
+
+// A mock multi-page PDF (each page says "Page <n>") — test data only.
+const mock = makeTestPdf(3);
+const one = extractPagesRange(mock, '2');
+```
+
+## Options shape
+
+Options use the same defaults as the Rust structs — see
+[Options](/guides/options/) — with camelCase keys in JavaScript:
+
+```js
+addPageNumbers(pdf, {
+  format: 'Page {n} of {total}',
+  position: 'bottom_center', // top_left | top_center | top_right | bottom_left | bottom_center | bottom_right | center
+  font: 'helvetica',         // helvetica | helvetica_bold | times_roman | courier | courier_bold
+  startAt: 1,
+  fontSize: 10,
+  margin: 36,
+});
+
+imagesToPdf([png, jpg], {
+  pageSize: 'a4',      // 'auto' | 'a4' | 'letter' | { width, height }
+  fit: 'contain',      // 'contain' | 'fill'
+  background: [1, 1, 1],
+});
+
+addWatermark(pdf, {
+  text: 'CONFIDENTIAL',
+  opacity: 0.15,
+  rotation: 0,
+  fontSize: 48,
+  position: 'bottom_right',
+  imageWidth: 200, // image watermarks only
+});
+```
+
+## Raw WASM exports (advanced)
+
+If you use the WASM build directly (as the
+[playground](/playground/) does), the exports keep the Rust names in
+`snake_case` (`merge_pdfs`, `extract_pages_range`, …), options use
+`snake_case` keys, `get_pdf_info` / `bulk_extract` return JSON strings
+(`bulk_extract` items carry base64 `pdf`), and failures are thrown as JSON
+strings (`{"ok":false,"code":"…","reason_en":"…","reason_hi":"…"}`).
+Prefer the npm wrapper unless you have a reason to touch the raw exports.
