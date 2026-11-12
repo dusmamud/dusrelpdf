@@ -104,7 +104,8 @@ enum Commands {
         /// Input PDF file.
         pdf: PathBuf,
         /// Rotation in degrees: 90, 180, 270 (or negative, e.g. -90).
-        #[arg(long, default_value_t = 90)]
+        /// Both `--angle -90` and `--angle=-90` work.
+        #[arg(long, default_value_t = 90, allow_negative_numbers = true)]
         angle: i32,
         /// Pages to rotate, like "1,3" (default: all pages).
         #[arg(long)]

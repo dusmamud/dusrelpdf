@@ -13,4 +13,5 @@ __pycache__/
 .pytest_cache/
 # wasm-pack copies the LICENSE next to its output (generated, same as root)
 website/src/LICENSE
+packages/LICENSE
 .DS_Store

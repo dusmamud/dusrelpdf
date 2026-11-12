@@ -39,7 +39,7 @@ EXCLUDE_SUFFIXES = (".whl", ".pyc", ".wasm", ".so")
 EXCLUDE_FILES = {".DS_Store"}
 # Generated paths (wasm-pack copies LICENSE next to its output; the
 # website build script copies the WASM bundle into public/wasm/).
-EXCLUDE_PATHS = {"website/src/LICENSE"}
+EXCLUDE_PATHS = {"website/src/LICENSE", "packages/LICENSE"}
 EXCLUDE_PREFIXES = ("website/public/wasm/",)
 
 
