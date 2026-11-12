@@ -23,8 +23,14 @@ jobs:
         run: cargo fmt --all -- --check
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      # The napi crate is excluded here: its #[napi] functions reference
+      # Node runtime symbols that do not exist outside Node, and the
+      # macOS/Windows linkers (unlike Linux) refuse the undefined
+      # symbols when building the test binary. Its 8 Rust unit tests run
+      # on Linux in the phase2 workflow instead; the addon itself is
+      # verified there by building the .node and running vitest.
       - name: test
-        run: cargo test --workspace
+        run: cargo test --workspace --exclude dusrelpdf-napi
       - name: CLI smoke test
         run: |
           cargo run -q -p dusrelpdf-cli -- --version

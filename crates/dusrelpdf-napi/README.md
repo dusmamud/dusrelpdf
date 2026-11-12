@@ -71,7 +71,11 @@ integration tests — the napi symbols they reference are provided
 by the Node runtime, so a plain `cargo test` binary cannot link
 them. That is why the Rust tests live as unit tests in
 `src/lib.rs` (pure helpers only) and the end-to-end coverage is
-in Node.
+in Node. The same link failure bites `cargo test --workspace` on
+macOS/Windows (their linkers refuse the undefined napi symbols;
+Linux tolerates them), so the CI `rust` job excludes this crate
+(`--exclude dusrelpdf-napi`) and its 8 unit tests run on Linux in
+the `phase2` workflow instead.
 
 ## Status
 

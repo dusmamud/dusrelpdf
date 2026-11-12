@@ -28,6 +28,8 @@ jobs:
             crates/dusrelpdf-napi/package-lock.json
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: napi Rust unit tests (Linux only — see ci.yml)
+        run: cargo test -p dusrelpdf-napi
       - name: build native addon
         working-directory: crates/dusrelpdf-napi
         run: |
