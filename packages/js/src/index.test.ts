@@ -1,10 +1,15 @@
 /**
- * dusrelpdf JS tests — WASM wrapper over the Rust core.
+ * dusrelpdf JS tests — wrapper over the Rust core.
  *
- * Every test runs through the real wasm build (`npm run build` via
- * `pretest`), so these assert the whole chain: TS validation ->
- * camelCase-to-snake_case translation -> wasm -> Rust core.
- * Page-count assertions go through `getPdfInfo` (the wasm round-trip);
+ * Every test runs through the real backend selected by `./index`:
+ * the native `.node` addon when it is built, else the WASM build
+ * (`npm run build` via `pretest`). The suite is backend-agnostic on
+ * purpose — both backends must behave identically — while
+ * `native.test.ts` pins each backend explicitly (native path, plus
+ * the `DUSREL_PDF_FORCE_WASM=1` fallback). So these assert the whole
+ * chain: TS validation -> camelCase-to-snake_case translation ->
+ * backend -> Rust core.
+ * Page-count assertions go through `getPdfInfo` (the backend round-trip);
  * content assertions (page order, /Rotate, stamp text, /SMask) read the
  * output bytes with `compress: false` where the check needs a content
  * stream, or straight from the raw bytes where the check is a dict

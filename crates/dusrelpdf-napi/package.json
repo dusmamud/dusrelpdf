@@ -1,0 +1,26 @@
+{
+  "author": "dusmamud",
+  "description": "Node.js native bindings for dusrelpdf",
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.0"
+  },
+  "license": "MIT",
+  "main": "./dusrelpdf-napi.linux-x64-gnu.node",
+  "name": "dusrelpdf-napi",
+  "napi": {
+    "packageName": "dusrelpdf-napi",
+    "targets": [
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc"
+    ],
+    "name": "dusrelpdf-napi"
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform"
+  },
+  "version": "0.1.0"
+}

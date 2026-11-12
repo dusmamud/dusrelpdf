@@ -3,19 +3,26 @@
  *
  * Unlike indycheck (whose JS package is a pure-TS mirror of string
  * validators), PDF binary manipulation cannot be mirrored in pure TS,
- * so this package wraps the Rust core via WASM
- * (`crates/dusrelpdf-wasm`, `--target nodejs`). Every operation takes
- * bytes in and returns bytes out, synchronously — the WASM calls are
- * synchronous, so there is nothing to `await` (awaiting a plain value
- * still works, it just does nothing).
+ * so this package wraps the Rust core — through the native napi-rs
+ * addon when it is built (`crates/dusrelpdf-napi`, `.node`), and
+ * through WASM (`crates/dusrelpdf-wasm`, `--target nodejs`) as a
+ * fallback. `backend()` reports which engine is active; setting
+ * `DUSREL_PDF_FORCE_WASM=1` forces the WASM path (tests / debugging).
+ * Every operation takes bytes in and returns bytes out,
+ * synchronously — both backends are synchronous, so there is nothing
+ * to `await` (awaiting a plain value still works, it just does nothing).
  *
- * WASM contract (see crates/dusrelpdf-wasm/src/lib.rs):
+ * Backend contract (see crates/dusrelpdf-wasm/src/lib.rs and
+ * crates/dusrelpdf-napi/src/lib.rs):
  * - Binary results are `Uint8Array`s (splits return an Array of them).
- * - On failure a wasm function THROWS a JSON string:
+ * - WASM failures throw a JSON string:
  *   `{"ok":false,"code":"PAGE_OUT_OF_RANGE","reason_en":"…",
- *   "reason_hi":"…"}`. Every failure surfaces here as a `DusrelError`
- *   with the same `code` / `reason_en` / `reason_hi` — never a raw
- *   TypeError, never a raw JSON string.
+ *   "reason_hi":"…"}`. Native failures throw a JS `Error` whose
+ *   message is `"CODE: reason in English"`. Either way every failure
+ *   surfaces here as a `DusrelError` with the same `code` /
+ *   `reason_en` / `reason_hi` — never a raw TypeError, never a raw
+ *   JSON string. (For native errors the Hindi reason is not carried
+ *   in the message, so `reasonHi` falls back to the English reason.)
  * - Options are plain JS objects matching the Rust `*Options` structs
  *   (crates/dusrelpdf/src/options.rs). IMPORTANT: serde does NOT fill
  *   missing non-Option fields from the Rust `Default` impl — calling
@@ -25,12 +32,15 @@
  *   filling every missing field with the Rust default (see the
  *   `to*Options` translators below). Passing `undefined` / omitting a
  *   field is exactly the Rust default; passing a field overrides it.
+ *   (The native binding fills missing fields from the Rust defaults
+ *   itself, so it accepts partial objects too — but the wrapper sends
+ *   complete ones either way, so both backends behave identically.)
  *
  * Naming: the TS API uses camelCase option keys (`fontSize`,
  * `startAt`, `pageSize`, `imageWidth`, …) and the wrapper translates
  * them to the Rust snake_case JSON keys (`font_size`, `start_at`,
- * `page_size`, `image_width`, …) before calling wasm. The mapping is
- * listed per-interface below and in the README.
+ * `page_size`, `image_width`, …) before calling either backend. The
+ * mapping is listed per-interface below and in the README.
  *
  * Input rule (indycheck v0.1.0 lesson, applied to bytes): functions
  * accept `Uint8Array` only. ANY non-Uint8Array input (string, number,
@@ -47,9 +57,273 @@
  * cryptographic digital signature.
  */
 
+import * as path from "node:path";
+
 // The wasm-pack `--target nodejs` output. Built by `npm run build`
 // (wasm-pack first, then tsc); gitignored — see packages/js/.gitignore.
-import * as wasm from "../wasm-pkg/dusrelpdf_wasm";
+// Loaded lazily (see `loadBackend` below) so the package also works
+// when only the native `.node` addon is built.
+const WASM_ENTRY = "../wasm-pkg/dusrelpdf_wasm";
+
+// ---------------------------------------------------------------------------
+// Backend selection — native napi-rs addon when built, WASM fallback.
+// ---------------------------------------------------------------------------
+
+/** Which engine is actually running the Rust core. */
+export type DusrelBackend = "native" | "wasm";
+
+/**
+ * The low-level surface both backends expose. The WASM module uses
+ * snake_case names, the native addon camelCase (`js_name`s); the
+ * adapters below normalise that. Binary arguments are `Uint8Array`s
+ * on this side; the native adapter converts them to Node `Buffer`s
+ * (napi `Buffer` requires a real Buffer, not a plain Uint8Array).
+ */
+interface BackendImpl {
+  version(): string;
+  make_test_pdf(pages: number): Uint8Array;
+  merge_pdfs(inputs: Uint8Array[], options: Record<string, unknown>): Uint8Array;
+  split_pdf(
+    pdf: Uint8Array,
+    ranges: number[][],
+    options: Record<string, unknown>,
+  ): Uint8Array[];
+  split_pdf_ranges(
+    pdf: Uint8Array,
+    ranges: string,
+    options: Record<string, unknown>,
+  ): Uint8Array[];
+  split_each_page(
+    pdf: Uint8Array,
+    options: Record<string, unknown>,
+  ): Uint8Array[];
+  extract_pages(
+    pdf: Uint8Array,
+    pages: number[],
+    options: Record<string, unknown>,
+  ): Uint8Array;
+  extract_pages_range(
+    pdf: Uint8Array,
+    range: string,
+    options: Record<string, unknown>,
+  ): Uint8Array;
+  remove_pages(
+    pdf: Uint8Array,
+    pages: number[],
+    options: Record<string, unknown>,
+  ): Uint8Array;
+  reorder_pages(
+    pdf: Uint8Array,
+    order: number[],
+    options: Record<string, unknown>,
+  ): Uint8Array;
+  rotate_pages(pdf: Uint8Array, options: Record<string, unknown>): Uint8Array;
+  images_to_pdf(
+    images: Uint8Array[],
+    options: Record<string, unknown>,
+  ): Uint8Array;
+  add_watermark(pdf: Uint8Array, options: Record<string, unknown>): Uint8Array;
+  add_page_numbers(
+    pdf: Uint8Array,
+    options: Record<string, unknown>,
+  ): Uint8Array;
+  place_signature(
+    pdf: Uint8Array,
+    signature: Uint8Array,
+    options: Record<string, unknown>,
+  ): Uint8Array;
+  get_pdf_info(pdf: Uint8Array, options: Record<string, unknown>): string;
+  bulk_extract(
+    pdf: Uint8Array,
+    selections: number[][],
+    options: Record<string, unknown>,
+  ): string;
+}
+
+type AnyFn = (...args: any[]) => any;
+type AnyRecord = Record<string, AnyFn>;
+
+function makeWasmBackend(mod: AnyRecord): BackendImpl {
+  return {
+    version: () => mod["version"]() as string,
+    make_test_pdf: (pages) => mod["make_test_pdf"](pages) as Uint8Array,
+    merge_pdfs: (inputs, options) =>
+      mod["merge_pdfs"](inputs, options) as Uint8Array,
+    split_pdf: (pdf, ranges, options) =>
+      mod["split_pdf"](pdf, ranges, options) as Uint8Array[],
+    split_pdf_ranges: (pdf, ranges, options) =>
+      mod["split_pdf_ranges"](pdf, ranges, options) as Uint8Array[],
+    split_each_page: (pdf, options) =>
+      mod["split_each_page"](pdf, options) as Uint8Array[],
+    extract_pages: (pdf, pages, options) =>
+      mod["extract_pages"](pdf, pages, options) as Uint8Array,
+    extract_pages_range: (pdf, range, options) =>
+      mod["extract_pages_range"](pdf, range, options) as Uint8Array,
+    remove_pages: (pdf, pages, options) =>
+      mod["remove_pages"](pdf, pages, options) as Uint8Array,
+    reorder_pages: (pdf, order, options) =>
+      mod["reorder_pages"](pdf, order, options) as Uint8Array,
+    rotate_pages: (pdf, options) =>
+      mod["rotate_pages"](pdf, options) as Uint8Array,
+    images_to_pdf: (images, options) =>
+      mod["images_to_pdf"](images, options) as Uint8Array,
+    add_watermark: (pdf, options) =>
+      mod["add_watermark"](pdf, options) as Uint8Array,
+    add_page_numbers: (pdf, options) =>
+      mod["add_page_numbers"](pdf, options) as Uint8Array,
+    place_signature: (pdf, signature, options) =>
+      mod["place_signature"](pdf, signature, options) as Uint8Array,
+    get_pdf_info: (pdf, options) =>
+      mod["get_pdf_info"](pdf, options) as string,
+    bulk_extract: (pdf, selections, options) =>
+      mod["bulk_extract"](pdf, selections, options) as string,
+  };
+}
+
+/** A Node `Buffer` for napi, unchanged when it already is one. */
+function toBuffer(value: Uint8Array): Buffer {
+  return Buffer.isBuffer(value) ? value : Buffer.from(value);
+}
+
+function makeNativeBackend(mod: AnyRecord): BackendImpl {
+  const bufs = (inputs: Uint8Array[]): Buffer[] => inputs.map(toBuffer);
+  return {
+    version: () => mod["version"]() as string,
+    make_test_pdf: (pages) => mod["makeTestPdf"](pages) as Uint8Array,
+    merge_pdfs: (inputs, options) =>
+      mod["mergePdfs"](bufs(inputs), options) as Uint8Array,
+    split_pdf: (pdf, ranges, options) =>
+      mod["splitPdf"](toBuffer(pdf), ranges, options) as Uint8Array[],
+    split_pdf_ranges: (pdf, ranges, options) =>
+      mod["splitPdfRanges"](toBuffer(pdf), ranges, options) as Uint8Array[],
+    split_each_page: (pdf, options) =>
+      mod["splitEachPage"](toBuffer(pdf), options) as Uint8Array[],
+    extract_pages: (pdf, pages, options) =>
+      mod["extractPages"](toBuffer(pdf), pages, options) as Uint8Array,
+    extract_pages_range: (pdf, range, options) =>
+      mod["extractPagesRange"](toBuffer(pdf), range, options) as Uint8Array,
+    remove_pages: (pdf, pages, options) =>
+      mod["removePages"](toBuffer(pdf), pages, options) as Uint8Array,
+    reorder_pages: (pdf, order, options) =>
+      mod["reorderPages"](toBuffer(pdf), order, options) as Uint8Array,
+    rotate_pages: (pdf, options) =>
+      mod["rotatePages"](toBuffer(pdf), options) as Uint8Array,
+    images_to_pdf: (images, options) =>
+      mod["imagesToPdf"](bufs(images), options) as Uint8Array,
+    add_watermark: (pdf, options) =>
+      mod["addWatermark"](toBuffer(pdf), options) as Uint8Array,
+    add_page_numbers: (pdf, options) =>
+      mod["addPageNumbers"](toBuffer(pdf), options) as Uint8Array,
+    place_signature: (pdf, signature, options) =>
+      mod["placeSignature"](toBuffer(pdf), toBuffer(signature), options) as Uint8Array,
+    get_pdf_info: (pdf, options) =>
+      mod["getPdfInfo"](toBuffer(pdf), options) as string,
+    bulk_extract: (pdf, selections, options) =>
+      mod["bulkExtract"](toBuffer(pdf), selections, options) as string,
+  };
+}
+
+/** `DUSREL_PDF_FORCE_WASM=1` forces the WASM path (tests / debugging). */
+function forceWasm(): boolean {
+  return process.env.DUSREL_PDF_FORCE_WASM === "1";
+}
+
+/** Platform triple used in napi `.node` filenames, e.g.
+ *  `linux-x64-gnu` (napi CLI output: `dusrelpdf-napi.<triple>.node`). */
+function nativeTriple(): string {
+  const platform = process.platform;
+  const arch = process.arch;
+  if (platform === "linux") return `linux-${arch}-gnu`;
+  if (platform === "win32") return `win32-${arch}-msvc`;
+  return `${platform}-${arch}`;
+}
+
+/** Candidate `.node` paths, in priority order. `DUSREL_PDF_NATIVE_PATH`
+ *  points straight at one file (tests / custom builds). The rest
+ *  search `crates/dusrelpdf-napi/` relative to this file (dist build
+ *  and vitest both sit two levels below the repo root) and relative
+ *  to the working directory (repo root, or `packages/js`). */
+function nativeCandidates(): string[] {
+  const triple = nativeTriple();
+  const names = [
+    `dusrelpdf-napi.${triple}.node`,
+    `index.${triple}.node`,
+    "dusrelpdf-napi.node",
+    "index.node",
+  ];
+  const dirs: string[] = [];
+  if (typeof __dirname === "string") {
+    dirs.push(path.join(__dirname, "..", "..", "crates", "dusrelpdf-napi"));
+  }
+  dirs.push(path.join(process.cwd(), "crates", "dusrelpdf-napi"));
+  dirs.push(path.join(process.cwd(), "..", "..", "crates", "dusrelpdf-napi"));
+  const out: string[] = [];
+  const override = process.env.DUSREL_PDF_NATIVE_PATH;
+  if (override) out.push(override);
+  for (const dir of dirs) {
+    for (const name of names) out.push(path.join(dir, name));
+  }
+  return out;
+}
+
+/** Try to load the native addon; `null` when it is not built (or the
+ *  platform/arch does not match — a wrong `.node` throws on require
+ *  and is skipped, so a stale binary never breaks the WASM fallback). */
+function loadNative(): BackendImpl | null {
+  if (forceWasm()) return null;
+  if (typeof require === "undefined") return null;
+  for (const candidate of nativeCandidates()) {
+    try {
+      const mod = require(candidate) as AnyRecord;
+      if (mod && typeof mod["mergePdfs"] === "function") {
+        return makeNativeBackend(mod);
+      }
+    } catch {
+      // Missing file, or a `.node` for another platform — try next.
+    }
+  }
+  return null;
+}
+
+/** Load the WASM build (throws if `wasm-pkg` was never built — run
+ *  `npm run build` in `packages/js`). */
+function loadWasm(): BackendImpl {
+  // require, not a static import: the file may not exist when only
+  // the native addon is built, and a static import would fail at
+  // load time instead of falling through to the error here.
+  const wasm = require(WASM_ENTRY) as AnyRecord;
+  return makeWasmBackend(wasm);
+}
+
+interface BackendCache {
+  name: DusrelBackend;
+  impl: BackendImpl;
+}
+
+let backendCache: BackendCache | null = null;
+
+function loadBackend(): BackendCache {
+  const native = loadNative();
+  if (native) return { name: "native", impl: native };
+  return { name: "wasm", impl: loadWasm() };
+}
+
+function backendImpl(): BackendImpl {
+  if (!backendCache) backendCache = loadBackend();
+  return backendCache.impl;
+}
+
+/**
+ * Which engine is actually running the Rust core: `"native"` (the
+ * napi-rs `.node` addon, when built in `crates/dusrelpdf-napi`) or
+ * `"wasm"` (the wasm-pack fallback, or when `DUSREL_PDF_FORCE_WASM=1`
+ * is set). Loads the backend on first call.
+ */
+export function backend(): DusrelBackend {
+  if (!backendCache) backendCache = loadBackend();
+  return backendCache.name;
+}
+
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -99,7 +373,7 @@ function invalidArgument(reasonEn: string, reasonHi: string): DusrelError {
   return new DusrelError("INVALID_ARGUMENT", reasonEn, reasonHi);
 }
 
-/** Turn whatever wasm threw into a DusrelError (pass-through if it
+/** Turn whatever a backend threw into a DusrelError (pass-through if it
  *  already is one, e.g. from the client-side checks below). */
 function toDusrelError(e: unknown): DusrelError {
   if (e instanceof DusrelError) return e;
@@ -127,6 +401,13 @@ function toDusrelError(e: unknown): DusrelError {
     return new DusrelError("OPERATION_FAILED", e, e);
   }
   if (e instanceof Error) {
+    // Native (.node) errors carry the code in the message:
+    // "INVALID_RANGE: …". The Hindi reason is not carried in that
+    // message, so reasonHi falls back to the English reason.
+    const m = /^([A-Z][A-Z0-9_]*):\s([\s\S]*)$/.exec(e.message);
+    if (m && ERROR_CODES.has(m[1])) {
+      return new DusrelError(m[1] as DusrelErrorCode, m[2], m[2]);
+    }
     return new DusrelError("OPERATION_FAILED", e.message, e.message);
   }
   return new DusrelError(
@@ -135,6 +416,21 @@ function toDusrelError(e: unknown): DusrelError {
     "Unknown error hai.",
   );
 }
+
+/** All known error codes (crates/dusrelpdf/src/error.rs), for the
+ *  native-error parse above. */
+const ERROR_CODES: ReadonlySet<string> = new Set([
+  "INVALID_PDF",
+  "ENCRYPTED_PDF",
+  "PAGE_OUT_OF_RANGE",
+  "EMPTY_INPUT",
+  "INVALID_RANGE",
+  "INVALID_ANGLE",
+  "INVALID_IMAGE",
+  "INVALID_ARGUMENT",
+  "INVALID_TYPE",
+  "OPERATION_FAILED",
+]);
 
 /** Run a wasm call, converting any throw into a DusrelError. */
 function call<T>(fn: () => T): T {
@@ -412,7 +708,7 @@ function isFiniteNumber(value: unknown): value is number {
 // Options translation — camelCase TS -> complete snake_case Rust objects.
 // Every translator fills ALL Rust-required fields with the Rust
 // defaults, because serde rejects partial objects (see header).
-// Undefined optional fields are omitted from the object sent to wasm.
+// Undefined optional fields are omitted from the object sent to the backend.
 // ---------------------------------------------------------------------------
 
 function toCommon(options?: CommonOptions): Record<string, unknown> {
@@ -575,7 +871,7 @@ function asBytes(value: unknown): Uint8Array {
   // wasm-bindgen returns Uint8Array for Vec<u8>; anything else is a bug.
   throw new DusrelError(
     "OPERATION_FAILED",
-    "WASM returned a non-bytes result.",
+    "Backend returned a non-bytes result.",
     "WASM ne bytes result nahi diya.",
   );
 }
@@ -584,7 +880,7 @@ function asBytesArray(value: unknown): Uint8Array[] {
   if (!Array.isArray(value)) {
     throw new DusrelError(
       "OPERATION_FAILED",
-      "WASM returned a non-array result.",
+      "Backend returned a non-array result.",
       "WASM ne array result nahi diya.",
     );
   }
@@ -602,7 +898,7 @@ function base64ToBytes(b64: string): Uint8Array {
 
 /** Crate version, e.g. `"0.1.0"` (lockstep with npm / PyPI / crates.io). */
 export function version(): string {
-  return call(() => wasm.version());
+  return call(() => backendImpl().version());
 }
 
 /**
@@ -617,13 +913,13 @@ export function makeTestPdf(pages: number): Uint8Array {
       "Test PDF page count non-negative integer hona chahiye.",
     );
   }
-  return call(() => asBytes(wasm.make_test_pdf(pages)));
+  return call(() => asBytes(backendImpl().make_test_pdf(pages)));
 }
 
 /** Merge multiple PDFs into one, in input order. */
 export function mergePdfs(inputs: unknown, options?: MergeOptions): Uint8Array {
   const bufs = assertPdfArray(inputs, "Merge inputs", "merge inputs");
-  return call(() => asBytes(wasm.merge_pdfs(bufs, toMergeOptions(options))));
+  return call(() => asBytes(backendImpl().merge_pdfs(bufs, toMergeOptions(options))));
 }
 
 /** Split one PDF into one output per range (arrays of 1-based page
@@ -650,7 +946,7 @@ export function splitPdf(
   }
   const parsed = ranges.map((r) => assertPageList(r, "Split range"));
   return call(() =>
-    asBytesArray(wasm.split_pdf(bytes, parsed, toCommon(options))),
+    asBytesArray(backendImpl().split_pdf(bytes, parsed, toCommon(options))),
   );
 }
 
@@ -664,7 +960,7 @@ export function splitPdfRanges(
   const bytes = assertPdfBytes(pdf);
   const spec = assertRangeString(ranges);
   return call(() =>
-    asBytesArray(wasm.split_pdf_ranges(bytes, spec, toCommon(options))),
+    asBytesArray(backendImpl().split_pdf_ranges(bytes, spec, toCommon(options))),
   );
 }
 
@@ -672,7 +968,7 @@ export function splitPdfRanges(
 export function splitEachPage(pdf: unknown, options?: SplitOptions): Uint8Array[] {
   const bytes = assertPdfBytes(pdf);
   return call(() =>
-    asBytesArray(wasm.split_each_page(bytes, toCommon(options))),
+    asBytesArray(backendImpl().split_each_page(bytes, toCommon(options))),
   );
 }
 
@@ -693,7 +989,7 @@ export function extractPages(
     );
   }
   return call(() =>
-    asBytes(wasm.extract_pages(bytes, list, toCommon(options))),
+    asBytes(backendImpl().extract_pages(bytes, list, toCommon(options))),
   );
 }
 
@@ -706,7 +1002,7 @@ export function extractPagesRange(
   const bytes = assertPdfBytes(pdf);
   const spec = assertRangeString(range);
   return call(() =>
-    asBytes(wasm.extract_pages_range(bytes, spec, toCommon(options))),
+    asBytes(backendImpl().extract_pages_range(bytes, spec, toCommon(options))),
   );
 }
 
@@ -720,7 +1016,7 @@ export function removePages(
   const bytes = assertPdfBytes(pdf);
   const list = assertPageList(pages);
   return call(() =>
-    asBytes(wasm.remove_pages(bytes, list, toCommon(options))),
+    asBytes(backendImpl().remove_pages(bytes, list, toCommon(options))),
   );
 }
 
@@ -734,7 +1030,7 @@ export function reorderPages(
   const bytes = assertPdfBytes(pdf);
   const list = assertPageList(order, "Reorder list");
   return call(() =>
-    asBytes(wasm.reorder_pages(bytes, list, toCommon(options))),
+    asBytes(backendImpl().reorder_pages(bytes, list, toCommon(options))),
   );
 }
 
@@ -743,7 +1039,7 @@ export function reorderPages(
 export function rotatePages(pdf: unknown, options?: RotateOptions): Uint8Array {
   const bytes = assertPdfBytes(pdf);
   return call(() =>
-    asBytes(wasm.rotate_pages(bytes, toRotateOptions(options))),
+    asBytes(backendImpl().rotate_pages(bytes, toRotateOptions(options))),
   );
 }
 
@@ -756,7 +1052,7 @@ export function imagesToPdf(
   options?: ImagesToPdfOptions,
 ): Uint8Array {
   const bufs = assertPdfArray(images, "Images", "images");
-  return call(() => asBytes(wasm.images_to_pdf(bufs, toImagesOptions(options))));
+  return call(() => asBytes(backendImpl().images_to_pdf(bufs, toImagesOptions(options))));
 }
 
 /**
@@ -767,7 +1063,7 @@ export function imagesToPdf(
 export function addWatermark(pdf: unknown, options?: WatermarkOptions): Uint8Array {
   const bytes = assertPdfBytes(pdf);
   return call(() =>
-    asBytes(wasm.add_watermark(bytes, toWatermarkOptions(options))),
+    asBytes(backendImpl().add_watermark(bytes, toWatermarkOptions(options))),
   );
 }
 
@@ -782,7 +1078,7 @@ export function addPageNumbers(
 ): Uint8Array {
   const bytes = assertPdfBytes(pdf);
   return call(() =>
-    asBytes(wasm.add_page_numbers(bytes, toPageNumberOptions(options))),
+    asBytes(backendImpl().add_page_numbers(bytes, toPageNumberOptions(options))),
   );
 }
 
@@ -803,7 +1099,7 @@ export function placeSignature(
   }
   return call(() =>
     asBytes(
-      wasm.place_signature(bytes, signature, toSignatureOptions(options)),
+      backendImpl().place_signature(bytes, signature, toSignatureOptions(options)),
     ),
   );
 }
@@ -811,7 +1107,7 @@ export function placeSignature(
 /** Read a PDF's summary without modifying it. */
 export function getPdfInfo(pdf: unknown, options?: CommonOptions): PdfInfo {
   const bytes = assertPdfBytes(pdf);
-  const json = call(() => wasm.get_pdf_info(bytes, toCommon(options)));
+  const json = call(() => backendImpl().get_pdf_info(bytes, toCommon(options)));
   const parsed = JSON.parse(json) as {
     page_count: number;
     version: string;
@@ -849,7 +1145,7 @@ export function bulkExtract(
   }
   const parsed = selections.map((s) => assertPageList(s, "Bulk selection"));
   const json = call(() =>
-    wasm.bulk_extract(bytes, parsed, toCommon(options)),
+    backendImpl().bulk_extract(bytes, parsed, toCommon(options)),
   );
   const items = JSON.parse(json) as Array<{
     index: number;

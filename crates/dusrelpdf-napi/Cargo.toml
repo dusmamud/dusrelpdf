@@ -1,0 +1,21 @@
+[package]
+name = "dusrelpdf-napi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Node.js native bindings for dusrelpdf"
+publish = false
+
+[lib]
+# rlib alongside cdylib so integration tests can link the crate
+# (same pattern as crates/dusrelpdf-wasm).
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dusrelpdf = { path = "../dusrelpdf" }
+napi = { version = "2", features = ["napi8", "serde-json"] }
+napi-derive = "2"
+serde = "1"
+serde_json = "1"

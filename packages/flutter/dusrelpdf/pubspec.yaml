@@ -1,0 +1,23 @@
+name: dusrelpdf
+description: Dart/Flutter bindings for dusrelpdf — offline PDF toolkit (merge, split, extract, reorder, rotate, watermark, page numbers, images-to-PDF, signature-image placement) via dart:ffi over the Rust core.
+version: 0.1.0
+repository: https://github.com/dusmamud/dusrelpdf
+issue_tracker: https://github.com/dusmamud/dusrelpdf/issues
+homepage: https://github.com/dusmamud/dusrelpdf
+
+environment:
+  sdk: ^3.0.0
+  # No `flutter:` constraint on purpose: this package uses only
+  # dart:ffi (no Flutter imports), so it works from pure Dart and
+  # from Flutter apps alike, and `dart pub get` / `dart test` run
+  # on machines without the Flutter SDK (like this VM).
+  # A Flutter app that depends on this package still needs its own
+  # platform-side scaffolding to bundle the native library — see
+  # README.md ("Bundling the native library in a Flutter app").
+
+dependencies:
+  ffi: ^2.1.0
+
+dev_dependencies:
+  lints: ^4.0.0
+  test: ^1.25.0

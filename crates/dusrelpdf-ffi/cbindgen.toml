@@ -1,0 +1,45 @@
+# cbindgen config for dusrelpdf-ffi — generates dusrelpdf.h.
+# Regenerate with:
+#   cbindgen --config cbindgen.toml --crate dusrelpdf-ffi --output dusrelpdf.h
+# (run from the workspace root, with cbindgen on PATH.)
+language = "C"
+header = """/* dusrelpdf — C ABI (v0.1.0)
+ *
+ * Thin C wrappers over the dusrelpdf Rust core: merge, split, extract,
+ * remove, reorder, rotate, images-to-PDF, watermark, page numbers and
+ * signature-image placement. Every operation takes bytes in and returns
+ * bytes out; errors come back as a JSON object with a stable code plus
+ * English and Hindi messages.
+ *
+ * OWNERSHIP (read this before calling anything):
+ * - Inputs are BORROWED: byte buffers, DusrelBytes arrays and JSON
+ *   strings are read only for the duration of the call. You keep
+ *   owning them; the library never frees them and never holds a
+ *   pointer after returning.
+ * - Outputs are CALLER-OWNED: every operation returns a heap
+ *   allocated DusrelResult* (single output) or DusrelResultList*
+ *   (multi-output: split family). Free it EXACTLY ONCE with the
+ *   matching free function (dusrelpdf_free_result /
+ *   dusrelpdf_free_result_list), which frees the struct, the output
+ *   byte buffer(s) and the error string. Do not free the inner
+ *   buffers yourself, do not free twice, do not mix the two free
+ *   functions. Both free functions accept NULL (no-op).
+ * - On success (ok == 1): `data` holds the output bytes, `error_json`
+ *   is NULL. get_pdf_info and bulk_extract return UTF-8 JSON in
+ *   `data` instead of PDF bytes (see the Rust docs for the shape).
+ * - On failure (ok == 0): `data` is NULL and `error_json` is a
+ *   NUL-terminated JSON string {"code": "…", "message_en": "…",
+ *   "message_hi": "…"}.
+ * - Functions NEVER return NULL and NEVER panic across the FFI
+ *   boundary. A NULL/invalid pointer or bad options JSON comes back
+ *   as an ok == 0 result. The only exception is dusrelpdf_version(),
+ *   which returns a static string you must NOT free.
+ * - Options are partial JSON objects with the same snake_case field
+ *   names as the Rust core options (see crates/dusrelpdf/src/options.rs).
+ *   Missing keys keep the Rust defaults; NULL or "" means all defaults.
+ *
+ * SPDX-License-Identifier: MIT
+ */"""
+sys_includes = ["stddef.h"]
+after_includes = """
+/* See the header comment above for the ownership contract. */"""

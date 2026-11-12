@@ -106,6 +106,7 @@ export default defineConfig({
 						{ label: 'Rust API', slug: 'reference/rust-api' },
 						{ label: 'JavaScript API', slug: 'reference/js-api' },
 						{ label: 'Python API', slug: 'reference/python-api' },
+						{ label: 'Other bindings', slug: 'reference/bindings' },
 						{ label: 'Limitations', slug: 'reference/limitations' },
 						{ label: 'Comparison', slug: 'comparison' },
 						{ label: 'Changelog', slug: 'changelog' },

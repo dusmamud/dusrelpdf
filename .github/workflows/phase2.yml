@@ -1,0 +1,103 @@
+name: Phase 2 bindings
+
+# napi-rs (Node native), UniFFI (Kotlin/Swift), Go C-API and Flutter
+# (Dart FFI) — all thin wrappers over the one Rust core. Nothing here
+# publishes anything.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  napi:
+    name: napi-rs native addon + JS fallback
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            packages/js/package-lock.json
+            crates/dusrelpdf-napi/package-lock.json
+      - name: install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: build native addon
+        working-directory: crates/dusrelpdf-napi
+        run: |
+          npm ci
+          npm run build
+      - name: JS build + typecheck
+        working-directory: packages/js
+        run: |
+          npm ci
+          npm run build
+          npm run typecheck
+      - name: test (native backend)
+        working-directory: packages/js
+        run: npm test
+      - name: test (forced WASM fallback)
+        working-directory: packages/js
+        env:
+          DUSREL_PDF_FORCE_WASM: "1"
+        run: npm test
+
+  uniffi:
+    name: UniFFI regeneration check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cache uniffi-bindgen
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/dusrelpdf-uniffi-bindgen
+          key: uniffi-bindgen-0.28.3
+      - name: test UniFFI crate
+        run: cargo test -p dusrelpdf-uniffi
+      - name: regeneration check (byte-identical)
+        run: bash scripts/regenerate-uniffi.sh --check
+
+  go:
+    name: Go C-API (cgo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: build C shared library
+        run: cargo build -p dusrelpdf-ffi --release
+      - name: go vet + test
+        working-directory: packages/go
+        run: |
+          go vet ./...
+          go test ./...
+
+  dart:
+    name: Flutter Dart FFI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: build C shared library
+        run: cargo build -p dusrelpdf-ffi --release
+      - name: dart analyze + test
+        working-directory: packages/flutter/dusrelpdf
+        run: |
+          dart pub get
+          dart analyze
+          dart test

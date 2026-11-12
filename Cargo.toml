@@ -2,8 +2,11 @@
 members = [
     "crates/dusrelpdf",
     "crates/dusrelpdf-cli",
+    "crates/dusrelpdf-uniffi",
     "crates/dusrelpdf-py",
     "crates/dusrelpdf-wasm",
+    "crates/dusrelpdf-napi",
+    "crates/dusrelpdf-ffi",
 ]
 resolver = "2"
 

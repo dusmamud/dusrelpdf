@@ -3,6 +3,23 @@
 All notable changes to dusrelpdf are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- Phase 2 bindings, same 0.1.0 core, nothing published yet:
+  napi-rs native Node addon (`crates/dusrelpdf-napi`, lazy-load with
+  WASM fallback, `.node` not committed), UniFFI 0.28.3 Kotlin + Swift
+  bindings (`crates/dusrelpdf-uniffi`, generated sources committed
+  under `bindings/`, byte-identical regeneration checked in CI), Go
+  C-API (`crates/dusrelpdf-ffi`, cbindgen header `dusrelpdf.h`) with a
+  cgo wrapper module `github.com/dusmamud/dusrelpdf-go` (no release/tag
+  yet), and a Flutter/Dart package (`packages/flutter/dusrelpdf`)
+  using dart:ffi over the same shared library.
+- CLI rotate now accepts `--angle -90` as well as `--angle=-90`
+  (clap `allow_negative_numbers`), with regression tests.
+- `packages/LICENSE` is ignored (wasm-pack regenerates it on build).
+
 ## [0.1.0] - 2026-11-12
 
 ### Added

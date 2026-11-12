@@ -68,6 +68,27 @@ fit, start number, password), stable error codes in English and Hindi
 test-data builders, Zod schemas (JS) and Pydantic models (Python),
 and a full CLI.
 
+## More languages (Phase 2, same 0.1.0 core)
+
+One Rust core, thin wrappers only — behaviour never drifts between
+languages. Nothing here is published yet; these bindings live in the
+repo and are tested in CI.
+
+| Language | Package | How it works |
+|---|---|---|
+| Node.js (native) | `dusrelpdf` (npm) | napi-rs addon (`crates/dusrelpdf-napi`); lazy-loads the native `.node` when built, falls back to the WASM build otherwise. Force WASM with `DUSREL_PDF_FORCE_WASM=1`. A fresh clone must run `npm run build` in `crates/dusrelpdf-napi` first — `.node` binaries are not committed. |
+| Kotlin | UniFFI (`bindings/kotlin`) | Generated from `crates/dusrelpdf-uniffi` (UniFFI 0.28.3). Regenerate with `scripts/regenerate-uniffi.sh` — CI checks the output is byte-identical. |
+| Swift | UniFFI (`bindings/swift`) | Same source as Kotlin, generated alongside it. |
+| Go | `github.com/dusmamud/dusrelpdf-go` | cgo wrapper over the C API (`crates/dusrelpdf-ffi`, header `dusrelpdf.h` via cbindgen). Build the shared library first: `cargo build -p dusrelpdf-ffi --release`. No module release/tag yet, so `go get` needs a `replace` directive for now. |
+| Flutter / Dart | `dusrelpdf` (pub.dev name, not published) | `packages/flutter/dusrelpdf`, dart:ffi over the same `libdusrelpdf` shared library. |
+
+The C API (`dusrelpdf.h`) is the shared FFI surface for Go and
+Flutter: inputs are borrowed, outputs are caller-owned and freed
+exactly once with the matching `dusrelpdf_free_*` function — see
+`crates/dusrelpdf-ffi/README.md`. Kotlin/Swift compilation is not
+verified on this machine (no kotlinc/swiftc here); the generated
+sources are shape-checked and regeneration-checked in CI.
+
 ## Why dusrelpdf
 
 - **One core, every language.** The logic lives once in Rust

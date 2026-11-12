@@ -1,0 +1,26 @@
+[package]
+name = "dusrelpdf-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "C ABI bindings for dusrelpdf — thin wrappers over the Rust core for Go (cgo), Flutter (dart:ffi) and any other C consumer"
+publish = false
+
+[lib]
+# Deliberately the same name as the core crate: the core builds only
+# an rlib, so `target/release/libdusrelpdf.{so,dylib,dll}` is this
+# crate's cdylib — the file Go (cgo) and Flutter (dart:ffi) load.
+name = "dusrelpdf"
+crate-type = ["cdylib", "rlib"]
+# The lib name intentionally matches the core crate, so doctests confuse
+# rustdoc with two `dusrelpdf` rlibs (E0464); the crate has no doc
+# examples, so doctests are disabled rather than renaming the cdylib
+# that Go (cgo) and Flutter (dart:ffi) load as libdusrelpdf.
+doctest = false
+
+[dependencies]
+dusrelpdf = { path = "../dusrelpdf" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

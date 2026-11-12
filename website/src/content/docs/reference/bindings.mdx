@@ -1,0 +1,102 @@
+---
+title: Other language bindings
+description: Node native (napi-rs), Kotlin and Swift (UniFFI), Go (C-API) and Flutter (Dart FFI) bindings for dusrelpdf.
+---
+
+One Rust core, thin wrappers only. Every binding below calls the same
+code as the Rust, JS/WASM, Python and CLI packages, so behaviour never
+drifts between languages. None of these bindings is published yet —
+they live in the repo and are tested in CI.
+
+## Node.js native (napi-rs)
+
+The npm package `dusrelpdf` lazy-loads a native addon when it is
+built, and falls back to the WASM build otherwise:
+
+```sh
+# In a fresh clone, build the addon first:
+cd crates/dusrelpdf-napi
+npm install
+npm run build
+```
+
+```js
+import { backend, mergePdfs } from "dusrelpdf";
+
+backend(); // "native" | "wasm"
+const merged = await mergePdfs([pdfA, pdfB]);
+```
+
+- `.node` binaries are **not** committed.
+- Set `DUSREL_PDF_FORCE_WASM=1` to force the WASM path (useful for
+  testing the fallback).
+- The API is identical on both backends: same 10 operations, same
+  `Options`, same error codes (`INVALID_RANGE` and friends, in
+  English; the Hindi reason falls back to English on the native path).
+
+## Kotlin and Swift (UniFFI)
+
+Generated from `crates/dusrelpdf-uniffi` (UniFFI 0.28.3). The generated
+sources are committed under `bindings/kotlin/` and `bindings/swift/`.
+
+```sh
+# Regenerate both languages (also run in CI with --check):
+bash scripts/regenerate-uniffi.sh
+bash scripts/regenerate-uniffi.sh --check
+```
+
+Kotlin gets idiomatic data classes and a `DusrelException` sealed
+class; Swift gets an enum-based error type. Both expose the same 10
+operations over bytes (`mergePdfs`, `splitPdf`, `extractPages`,
+`removePages`, `reorderPages`, `rotatePages`, `imagesToPdf`,
+`addWatermark`, `addPageNumbers`, `placeSignature`) plus `getPdfInfo`
+and `bulkExtract`.
+
+Note: Kotlin/Swift compilation is not verified on this machine (no
+kotlinc/swiftc here). The generated sources are shape-checked and
+regeneration-checked in CI.
+
+## Go (C-API)
+
+Module `github.com/dusmamud/dusrelpdf-go` (no release/tag yet, so
+`go get` needs a `replace` directive pointing at `packages/go` for
+now). Build the C shared library first:
+
+```sh
+cargo build -p dusrelpdf-ffi --release
+cd packages/go
+go test ./...
+```
+
+```go
+merged, err := dusrelpdf.Merge([][]byte{pdfA, pdfB}, nil)
+if err != nil {
+    // err carries the dusrelpdf error code, e.g. INVALID_RANGE
+}
+```
+
+The C API lives in `crates/dusrelpdf-ffi` (header `dusrelpdf.h`,
+generated with cbindgen). Ownership rules: inputs are borrowed;
+outputs are caller-owned and must be freed exactly once with the
+matching `dusrelpdf_free_*` function. See
+`crates/dusrelpdf-ffi/README.md`.
+
+## Flutter / Dart (dart:ffi)
+
+Package `dusrelpdf` in `packages/flutter/dusrelpdf` (pub.dev name,
+not published). It loads the same `libdusrelpdf` shared library with
+`dart:ffi`:
+
+```dart
+import 'package:dusrelpdf/dusrelpdf.dart';
+
+final pdf = Dusrelpdf(); // pass libraryPath: to load a specific .so
+final merged = pdf.merge([pdfA, pdfB]);
+```
+
+Build the shared library first (`cargo build -p dusrelpdf-ffi
+--release`) and point the package at it with `libraryPath` or the
+`DUSRELPDFFI_LIB` environment variable. Only `dart test` is run here
+(no flutter CLI on this machine), so no widget-level tests exist yet,
+and the app-side scaffolding that bundles the native library into a
+Flutter app is not included — your app must bundle the library itself.

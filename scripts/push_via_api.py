@@ -33,9 +33,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 EXCLUDE_DIRS = {
     "target", "node_modules", ".git", ".venv", "__pycache__",
-    "dist", "wasm-pkg", ".astro", ".pytest_cache",
+    "dist", "wasm-pkg", ".astro", ".pytest_cache", ".dart_tool",
 }
-EXCLUDE_SUFFIXES = (".whl", ".pyc", ".wasm", ".so")
+EXCLUDE_SUFFIXES = (".whl", ".pyc", ".wasm", ".so", ".node")
 EXCLUDE_FILES = {".DS_Store"}
 # Generated paths (wasm-pack copies LICENSE next to its output; the
 # website build script copies the WASM bundle into public/wasm/).

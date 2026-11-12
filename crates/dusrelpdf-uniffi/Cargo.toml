@@ -1,0 +1,25 @@
+[package]
+name = "dusrelpdf-uniffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "UniFFI bindings for dusrelpdf — Kotlin and Swift wrappers over the Rust core"
+# Binding crate — never published to crates.io on its own; only the
+# core `dusrelpdf` crate is published. Prevents release-plz from
+# trying to publish it (its path dependency has no version requirement).
+publish = false
+
+[lib]
+# cdylib: the shared library UniFFI generates Kotlin/Swift bindings from.
+# rlib: so `cargo test` / `cargo clippy` can exercise this crate directly.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dusrelpdf = { path = "../dusrelpdf" }
+thiserror = "2"
+uniffi = "=0.28.3"
+
+[dev-dependencies]
+lopdf.workspace = true
