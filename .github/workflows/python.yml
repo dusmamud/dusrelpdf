@@ -27,7 +27,10 @@ jobs:
           python -m venv /tmp/wheel-venv
           # maturin uses the workspace target dir, so the wheel lands at
           # the repo-root target/wheels/, not under crates/dusrelpdf-py/
-          /tmp/wheel-venv/bin/pip install target/wheels/*.whl
+          # Install with the [pydantic] extra: the smoke test imports
+          # dusrelpdf.pydantic, which raises ImportError without it.
+          WHEEL=$(echo target/wheels/*.whl)
+          /tmp/wheel-venv/bin/pip install "$WHEEL[pydantic]"
           /tmp/wheel-venv/bin/python -c "
           import dusrelpdf as dp
           pdf = dp.make_test_pdf(3)
