@@ -3,19 +3,37 @@
 // this package only converts Go values to C buffers / JSON options and
 // back. Bytes in, bytes out, never a panic on bad input.
 //
-// Build the shared library first (see README.md):
+// Build the static library first (see README.md):
 //
 //	cargo build -p dusrelpdf-ffi --release
 //
-// The cdylib (target/release/libdusrelpdf.so on Linux,
-// libdusrelpdf.dylib on macOS, dusrelpdf.dll on Windows) is linked
-// by cgo and found at runtime through an rpath baked into the
-// test/binary — no LD_LIBRARY_PATH needed for the standard layout.
+// and vendor target/release/libdusrelpdf.a under
+// packages/go/lib/<GOOS>-<GOARCH>/ (see packages/go/lib/README.md).
+// The vendored archive is linked by cgo, so `go get` users do NOT
+// need Rust or a repo checkout — the module is self-contained for
+// every platform under packages/go/lib/. The header is vendored too
+// (packages/go/dusrelpdf.h, a verbatim copy of
+// crates/dusrelpdf-ffi/dusrelpdf.h).
+//
+// One one-time step after `go get`: the Linux archives are stored as
+// 20 MB chunks (the GitHub API rejects blobs over ~40 MB), so run
+// `go generate ./...` once to reassemble them (no Rust, no network —
+// the parts are already in the module). See packages/go/lib/README.md.
 package dusrelpdf
 
+//go:generate sh ./lib/assemble.sh
+
 /*
-#cgo LDFLAGS: -L${SRCDIR}/../../target/release -ldusrelpdf -Wl,-rpath,${SRCDIR}/../../target/release
-#include "../../crates/dusrelpdf-ffi/dusrelpdf.h"
+#cgo CFLAGS: -I${SRCDIR}
+#cgo linux,amd64 LDFLAGS: ${SRCDIR}/lib/linux-amd64/libdusrelpdf.a
+#cgo linux,arm64 LDFLAGS: ${SRCDIR}/lib/linux-arm64/libdusrelpdf.a
+#cgo darwin,arm64 LDFLAGS: ${SRCDIR}/lib/darwin-arm64/libdusrelpdf.a
+#cgo darwin,amd64 LDFLAGS: ${SRCDIR}/lib/darwin-amd64/libdusrelpdf.a
+#cgo windows,amd64 LDFLAGS: ${SRCDIR}/lib/windows-amd64/libdusrelpdf.a
+#cgo linux LDFLAGS: -ldl -lpthread -lm
+#cgo darwin LDFLAGS: -framework CoreFoundation -framework Security
+#cgo windows LDFLAGS: -lws2_32 -luserenv -lbcrypt -lntdll
+#include "dusrelpdf.h"
 #include <stdlib.h>
 */
 import "C"

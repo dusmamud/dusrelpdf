@@ -40,3 +40,22 @@ jobs:
           test -f dist/changelog/index.html
           test -f dist/reference/merge/index.html
           echo "website pages OK"
+      # Deploy to Cloudflare Pages. This step is deliberately gated on
+      # the secrets: until the repo owner creates the 'dusrelpdf' Pages
+      # project and adds CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID,
+      # the step is skipped and the workflow still passes on the build
+      # + page checks above. (A step-level `if` on the secrets keeps
+      # the deploy in the same job, so no artifact upload/download is
+      # needed — dist/ is already on this runner.)
+      - name: deploy to Cloudflare Pages
+        if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=dusrelpdf
+          workingDirectory: website
+      - name: note deploy skipped (Cloudflare secrets not set yet)
+        if: ${{ secrets.CLOUDFLARE_API_TOKEN == '' || secrets.CLOUDFLARE_ACCOUNT_ID == '' }}
+        run: |
+          echo "::notice::Cloudflare Pages deploy skipped — CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set yet. Create the 'dusrelpdf' Pages project and add both secrets; the site build and page checks above still ran."

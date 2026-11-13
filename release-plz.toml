@@ -1,0 +1,101 @@
+# release-plz configuration for dusrelpdf.
+#
+# One publishable crate only (crates/dusrelpdf). Every other workspace
+# member has `publish = false` in its Cargo.toml, so release-plz ignores
+# it. The Rust crates already share one version through
+# `[workspace.package] version` in the root Cargo.toml, and
+# scripts/sync-versions.sh keeps the JS / Python / Flutter / Go /
+# website manifests on the same version.
+#
+# Flow: `.github/workflows/release.yml` (manual dispatch) runs
+# `release-plz release-pr` — it opens a release PR, it never publishes.
+# Publishing (crates.io / npm / PyPI) is a separate, manual step.
+#
+# Known limit this config does NOT fix: release-plz only counts commits
+# touching the publishable crate's own directory, so a batch that only
+# touches bindings / packages / website / workflows produces
+# "already up to date" and no PR. That case is covered by the
+# satellite fallback in .github/workflows/release.yml +
+# scripts/release_fallback.sh — see that script for the design.
+#
+# Replaces the old hidden `.release-plz.toml` (release-plz reads
+# `release-plz.toml` first, so there must be exactly one config).
+# Its custom `[changelog] body` template is intentionally dropped:
+# it used `{{ changes }}`, which is not a git-cliff template variable,
+# and the release-plz defaults already produce the Keep a Changelog
+# format this repo uses.
+
+[workspace]
+# Whitelist mode: no crate is processed unless a [[package]] entry
+# below opts it in. A crate added later is ignored until then.
+release = false
+# The repo's changelog lives at the repo root, not next to the crate's
+# Cargo.toml (there is no crates/dusrelpdf/CHANGELOG.md). This path is
+# relative to the root Cargo.toml.
+changelog_path = "CHANGELOG.md"
+# One tag per release, named like the indycheck releases
+# (dusrelpdf-v0.1.0). The release-plz default for a single public
+# package would be bare `v0.1.0`, so pin it explicitly; the satellite
+# fallback script matches this exact shape.
+git_tag_name = "dusrelpdf-v{{ version }}"
+git_release_name = "dusrelpdf-v{{ version }}"
+# Put the changelog entry in the GitHub release body — without this,
+# release-plz creates the release with only the release commit message
+# as the body (the indycheck empty-release-body lesson).
+git_release_body = "{{ changelog }}"
+# Tags / releases are only created by the `release` step (after a
+# release PR merges and publishing is dispatched), never by release-pr.
+git_tag_enable = true
+git_release_enable = true
+# The satellite fallback opens its PR on a branch with this prefix so
+# the next release-plz run recognises it as a release PR and updates
+# it instead of opening a second one. Do not change this prefix
+# without updating scripts/release_fallback.sh.
+pr_branch_prefix = "release-plz-"
+
+[[package]]
+name = "dusrelpdf"
+release = true
+publish = true
+# The single publishable crate is its own version group. The group is
+# what keeps the version in lockstep if a second publishable crate is
+# ever added (give it the same version_group). Today the lockstep is
+# already enforced by [workspace.package] version + the sync script;
+# the group documents the intent and makes release-plz bump every
+# member together.
+version_group = "dusrelpdf"
+
+# Non-publishable workspace members. They inherit the workspace
+# `release = false`, but listing them explicitly documents that they
+# are intentionally excluded (their version still follows the
+# workspace version, and their manifests are synced by
+# scripts/sync-versions.sh).
+[[package]]
+name = "dusrelpdf-cli"
+release = false
+publish = false
+
+[[package]]
+name = "dusrelpdf-py"
+release = false
+publish = false
+
+[[package]]
+name = "dusrelpdf-wasm"
+release = false
+publish = false
+
+[[package]]
+name = "dusrelpdf-napi"
+release = false
+publish = false
+
+[[package]]
+name = "dusrelpdf-ffi"
+release = false
+publish = false
+
+[[package]]
+name = "dusrelpdf-uniffi"
+release = false
+publish = false

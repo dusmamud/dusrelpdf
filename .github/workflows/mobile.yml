@@ -1,0 +1,115 @@
+name: Mobile (Kotlin + Swift)
+
+# Compile verification for the UniFFI Kotlin (Gradle/AAR) and Swift (SPM)
+# packages. Nothing here publishes anything.
+#
+# Why this workflow exists: the generated Kotlin/Swift sources are only
+# shape-checked by the UniFFI regeneration check (phase2.yml). That never
+# compiled them — Kotlin/Swift compilation was never verified. This job is
+# the first compile check.
+#
+# NOTE on scope: Kotlin compiles on Linux; Swift needs a macOS runner.
+# Neither toolchain exists on the usual dev VM — these jobs only run in CI.
+on:
+  push:
+    branches: [main]
+    paths:
+      - bindings/kotlin/**
+      - bindings/swift/**
+      - crates/dusrelpdf-uniffi/**
+      - .github/workflows/mobile.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - bindings/kotlin/**
+      - bindings/swift/**
+      - crates/dusrelpdf-uniffi/**
+      - .github/workflows/mobile.yml
+
+jobs:
+  kotlin:
+    name: Kotlin Android library (Gradle)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 17 (AGP 8.5.x requires JDK 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android platform + build tools (compileSdk 34)
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+      # Compiles the UniFFI-generated Kotlin (bindings/kotlin/uniffi/,
+      # registered as a source root) against JNA. The native .so files are
+      # NOT built here — compiling Kotlin does not need them; packaging
+      # a release AAR does (see bindings/kotlin/README.md).
+      - name: compile + build debug AAR
+        working-directory: bindings/kotlin
+        run: ./gradlew :dusrelpdf:assembleDebug --stacktrace
+      # Smoke-tests the maven-publish block: builds the release AAR and
+      # generates the POM (MIT, developer dusmamud, SCM). Installs into
+      # ~/.m2 only — nothing leaves the runner.
+      - name: validate Maven publication metadata (local only)
+        working-directory: bindings/kotlin
+        run: ./gradlew :dusrelpdf:publishToMavenLocal --stacktrace
+
+  swift-copies-in-sync:
+    name: Swift generated copies in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The SwiftPM package keeps byte-identical copies of the generated
+      # sources under bindings/swift/Sources/ (see
+      # bindings/swift/README.md). Fail if a copy drifts from the
+      # generated original — no swiftc needed for this check.
+      - name: generated Swift copies must match the UniFFI output
+        run: |
+          diff bindings/swift/dusrelpdf_uniffi.swift \
+               bindings/swift/Sources/Dusrelpdf/dusrelpdf_uniffi.swift
+          diff bindings/swift/dusrelpdf_uniffiFFI.h \
+               bindings/swift/Sources/dusrelpdf_uniffiFFI/dusrelpdf_uniffiFFI.h
+
+  swift:
+    name: Swift package (SPM) + macOS staticlib
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      # Proves the XCFramework tooling works: build the Rust staticlib
+      # for the two macOS slices and merge them with lipo. iOS slices are
+      # built at release time (see bindings/swift/build-xcframework.sh).
+      - name: build Rust staticlib (macOS slices) + lipo
+        run: |
+          cargo rustc -p dusrelpdf-uniffi --target aarch64-apple-darwin --release --crate-type staticlib
+          cargo rustc -p dusrelpdf-uniffi --target x86_64-apple-darwin --release --crate-type staticlib
+          lipo -create -output /tmp/libdusrelpdf_uniffi-macos.a \
+            target/aarch64-apple-darwin/release/libdusrelpdf_uniffi.a \
+            target/x86_64-apple-darwin/release/libdusrelpdf_uniffi.a
+          file /tmp/libdusrelpdf_uniffi-macos.a
+      - name: assemble macOS XCFramework (proves the release tooling)
+        run: |
+          mkdir -p /tmp/DusrelpdfHeaders
+          cp bindings/swift/Sources/dusrelpdf_uniffiFFI/dusrelpdf_uniffiFFI.h /tmp/DusrelpdfHeaders/
+          cp bindings/swift/Sources/dusrelpdf_uniffiFFI/module.modulemap /tmp/DusrelpdfHeaders/
+          xcodebuild -create-xcframework \
+            -library /tmp/libdusrelpdf_uniffi-macos.a \
+            -headers /tmp/DusrelpdfHeaders \
+            -output /tmp/DusrelpdfFFI.xcframework
+          ls /tmp/DusrelpdfFFI.xcframework
+      # Dev mode (Package.swift: useLocalFFI = true): builds the Swift
+      # module against the local C header target. No native library is
+      # needed to compile the Swift module.
+      - name: swift build (debug + release)
+        working-directory: bindings/swift
+        run: |
+          swift build
+          swift build -c release

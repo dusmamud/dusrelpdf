@@ -99,6 +99,15 @@ do {
 }
 ```
 
+## Packaging
+
+The generated sources are wrapped in real packages — see
+`bindings/kotlin/README.md` (Gradle Android library, Maven coordinates
+`io.github.dusmamud:dusrelpdf:0.1.0`) and `bindings/swift/README.md`
+(SwiftPM package `Dusrelpdf`, with an XCFramework binary target wired at
+release time). Compilation of both packages is verified by
+`.github/workflows/mobile.yml`; neither package is published anywhere yet.
+
 ## Regenerating the bindings
 
 Requires UniFFI **0.28.3**. From the repo root:

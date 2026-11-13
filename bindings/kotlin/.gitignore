@@ -1,0 +1,5 @@
+# Gradle build outputs and local config — never committed.
+.gradle/
+build/
+local.properties
+**/build/

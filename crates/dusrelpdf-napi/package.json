@@ -5,22 +5,32 @@
     "@napi-rs/cli": "^2.18.0"
   },
   "license": "MIT",
-  "main": "./dusrelpdf-napi.linux-x64-gnu.node",
   "name": "dusrelpdf-napi",
   "napi": {
-    "packageName": "dusrelpdf-napi",
-    "targets": [
-      "x86_64-unknown-linux-gnu",
-      "aarch64-unknown-linux-gnu",
-      "x86_64-apple-darwin",
-      "aarch64-apple-darwin",
-      "x86_64-pc-windows-msvc"
-    ],
-    "name": "dusrelpdf-napi"
+    "name": "dusrelpdf-napi",
+    "package": {
+      "name": "dusrelpdf"
+    },
+    "triples": {
+      "additional": [
+        "x86_64-unknown-linux-gnu",
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+        "x86_64-pc-windows-msvc"
+      ],
+      "defaults": false
+    }
   },
+  "private": true,
   "scripts": {
+    "artifacts": "napi artifacts",
     "build": "napi build --platform --release",
-    "build:debug": "napi build --platform"
+    "build:debug": "napi build --platform",
+    "create-npm-dir": "napi create-npm-dir -t .",
+    "prepublishOnly": "napi prepublish -t npm --skip-gh-release",
+    "version": "napi version"
   },
   "version": "0.1.0"
 }

@@ -1,0 +1,82 @@
+// dusrelpdf_flutter — Android build.
+//
+// This plugin is an *ffi plugin*: all PDF logic is called from Dart
+// (dart:ffi) and there is no MethodChannel. This Gradle file exists
+// only to bundle the native library (libdusrelpdf.so) into the app.
+//
+// Native library sourcing, in order:
+//   1. (FUTURE) Maven Central AAR — see the commented-out dependency
+//      below. It does NOT exist yet: `io.github.dusmamud:dusrelpdf`
+//      has never been published to Maven Central, so the dependency
+//      is commented out. Uncomment it (and delete the jniLibs
+//      fallback) after the first Maven Central publish, as part of
+//      the v0.1.0 release work.
+//   2. (TODAY) Local jniLibs fallback — build the .so per ABI and
+//      drop it under android/src/main/jniLibs/<abi>/libdusrelpdf.so:
+//        cargo ndk -t armeabi-v7a -t arm64-v8a -t x86_64 \
+//          build -p dusrelpdf-ffi --release
+//      (copies live in target/<abi>/release/libdusrelpdf.so)
+//      No .so is committed to this repo.
+
+group 'io.github.dusmamud.dusrelpdf_flutter'
+version '0.1.0'
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.1.0'
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'io.github.dusmamud.dusrelpdf_flutter'
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 21
+    }
+
+    // Local-build fallback: a .so placed at
+    // src/main/jniLibs/<abi>/libdusrelpdf.so is packaged into the APK.
+    // (This is also Gradle's default jniLibs location; declared here
+    // explicitly so the fallback is visible, not magic.)
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+}
+
+dependencies {
+    // FUTURE — Maven Central AAR (DOES NOT EXIST YET).
+    // The dusrelpdf Kotlin/Swift packaging publishes an AAR with
+    // Maven coordinates io.github.dusmamud:dusrelpdf. Its jni/
+    // directory will carry libdusrelpdf.so per ABI, and depending on
+    // it here makes the plugin work with no manual steps.
+    //
+    // TODO(RELEASE v0.1.0): after the first Maven Central publish,
+    // uncomment the line below and remove the jniLibs fallback above.
+    //   api 'io.github.dusmamud:dusrelpdf:0.1.0'
+}

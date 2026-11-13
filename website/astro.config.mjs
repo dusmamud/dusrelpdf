@@ -22,8 +22,11 @@ const jsonLd = {
 
 // https://astro.build/config
 export default defineConfig({
-	// Placeholder until the site is deployed (Cloudflare Pages, like
-	// indycheck). Update this when a real domain is attached.
+	// Site URL for the live docs. The Cloudflare Pages deploy step is
+	// wired in .github/workflows/website.yml, but the 'dusrelpdf' Pages
+	// project + CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID secrets
+	// must be created first — until then the deploy step is skipped
+	// and this URL is not live yet.
 	site: 'https://dusrelpdf.pages.dev',
 	integrations: [
 		starlight({

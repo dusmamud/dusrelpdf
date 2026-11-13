@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Install dusrelpdf from npm, PyPI or crates.io — one package, all 10 operations.
+description: Install dusrelpdf — what works today (build from source) and what to run once v0.1.0 is published.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
@@ -10,20 +10,58 @@ dusrelpdf is **one package** on every registry. One install gives you all
 PDF, watermark, page numbers and signature placement. There are no
 per-feature subpackages.
 
-## JavaScript / TypeScript
+<Aside type="caution" title="Not published yet — read this first">
+  dusrelpdf **0.1.0 is not on any registry yet**: `npm install dusrelpdf`,
+  `pip install dusrelpdf` and `cargo add dusrelpdf` all fail today, and
+  there are no tags or GitHub releases either. For now, install it by
+  cloning the repo and building from source, as below. The registry
+  commands in the [After v0.1.0 is published](#after-v010-is-published)
+  section will work once the first release lands.
+</Aside>
+
+## What works today — build from source
+
+Clone the repo first:
 
 ```bash
-npm install dusrelpdf
+git clone https://github.com/dusmamud/dusrelpdf
+cd dusrelpdf
 ```
+
+### Rust
+
+Use the core crate as a path dependency — no registry needed:
+
+```toml
+# Cargo.toml
+[dependencies]
+dusrelpdf = { path = "crates/dusrelpdf" }
+```
+
+Requires Rust 1.85+ (edition 2024). The crate is pure Rust on top of
+lopdf 0.47 — no C libraries, no system dependencies.
+
+### JavaScript / TypeScript
+
+Build the WASM package from source (requires
+[wasm-pack](https://rustwasm.github.io/wasm-pack/) and Node 18+):
+
+```bash
+cd packages/js
+npm install
+npm run build
+```
+
+That compiles the Rust core to WebAssembly and builds the TypeScript
+wrapper into `dist/`. Then import from the built output:
 
 ```js
-import { mergePdfs, extractPagesRange } from 'dusrelpdf';
+import { mergePdfs, extractPagesRange } from './dist/index.js';
 ```
 
-Requires Node 18+. The npm package ships the Rust core compiled to WebAssembly
-plus a small TypeScript wrapper — no native build step on install, no
-`node-gyp`. It works in Node and in the browser (see the
-[playground](/playground/)).
+The package ships the Rust core compiled to WebAssembly plus a small
+TypeScript wrapper — no native build step, no `node-gyp`. It works in
+Node and in the browser (see the [playground](/playground/)).
 
 <Aside>
   The JavaScript API uses **camelCase** names (`mergePdfs`,
@@ -33,18 +71,31 @@ plus a small TypeScript wrapper — no native build step on install, no
   [JavaScript API](/reference/js-api/).
 </Aside>
 
-## Python
+### Python
+
+Build and install the extension from source (requires Python 3.10+ and
+[maturin](https://www.maturin.rs/)):
 
 ```bash
-pip install dusrelpdf
+cd crates/dusrelpdf-py
+pip install maturin
+maturin develop
+```
+
+`maturin develop` installs into the active virtual environment. Without
+one, build a wheel and install it instead:
+
+```bash
+maturin build --release
+pip install target/wheels/dusrelpdf-*.whl
 ```
 
 ```python
 from dusrelpdf import merge_pdfs, extract_pages_range
 ```
 
-Requires Python 3.9+. The wheel ships the Rust core as a native extension —
-no compiler needed at install time.
+The wheel ships the Rust core as a native extension — no compiler needed
+at install time, once the wheel is built.
 
 <Aside type="note" title="Python API shape">
   The Python functions keep the Rust `snake_case` names
@@ -53,9 +104,43 @@ no compiler needed at install time.
   `.reason_en`, `.reason_hi`). See [Python API](/reference/python-api/).
 </Aside>
 
-## Rust
+### CLI
+
+There are **no prebuilt CLI binaries yet**, and `cargo install
+dusrelpdf-cli` does **not** work — the CLI crate is marked
+`publish = false`, so it can never be installed from crates.io. Run it
+from the cloned repo instead:
 
 ```bash
+# Run without installing
+cargo run -p dusrelpdf-cli -- --help
+
+# Or install it from the local source
+cargo install --path crates/dusrelpdf-cli
+dusrelpdf --help
+```
+
+The CLI covers every operation (`merge`, `split`, `extract`, `remove`,
+`reorder`, `rotate`, `images-to-pdf`, `watermark`, `numbers`, `sign`) plus
+`info` and `mock`. See [CLI](/reference/cli/).
+
+## After v0.1.0 is published
+
+Once the first release is out on the registries, these are the real
+install commands:
+
+```bash
+# JavaScript / TypeScript (Node 18+)
+npm install dusrelpdf
+```
+
+```bash
+# Python (Python 3.10+)
+pip install dusrelpdf
+```
+
+```bash
+# Rust (Rust 1.85+)
 cargo add dusrelpdf
 ```
 
@@ -65,33 +150,25 @@ cargo add dusrelpdf
 dusrelpdf = "0.1"
 ```
 
-Requires Rust 1.85+ (edition 2024). The crate is pure Rust on top of
-lopdf 0.47 — no C libraries, no system dependencies.
+The CLI stays source-only even after publishing — the CLI crate is
+`publish = false`, so keep using
+`cargo install --path crates/dusrelpdf-cli` from a clone (see above).
 
-## CLI
-
-The CLI ships with the Rust crate. Install it with Cargo:
-
-```bash
-cargo install dusrelpdf-cli
-dusrelpdf --help
+```js
+// JavaScript
+import { mergePdfs, extractPagesRange } from 'dusrelpdf';
 ```
 
-Or build it from the repo:
-
-```bash
-cargo run -p dusrelpdf-cli -- --help
+```python
+# Python
+from dusrelpdf import merge_pdfs, extract_pages_range
 ```
-
-The CLI covers every operation (`merge`, `split`, `extract`, `remove`,
-`reorder`, `rotate`, `images-to-pdf`, `watermark`, `numbers`, `sign`) plus
-`info` and `mock`. See [CLI](/reference/cli/).
 
 ## Verify the install
 
 ```bash
-# CLI
-dusrelpdf version
+# CLI (from the repo)
+cargo run -p dusrelpdf-cli -- version
 # dusrelpdf 0.1.0
 ```
 

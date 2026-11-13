@@ -30,6 +30,69 @@ cp target/release/libdusrelpdf_napi.so \
 (`.so` on Linux, `.dylib` on macOS, `.dll` on Windows — rename to
 `<name>.<platform>-<arch>-<abi>.node` for the platform.)
 
+Cross-target builds use `--target` (the `--platform` flag is what
+appends the triple to the filename, so both flags are needed):
+
+```sh
+npm run build -- --target x86_64-unknown-linux-musl # needs musl-tools (apt install musl-tools)
+# aarch64 needs gcc-aarch64-linux-gnu AND the linker pinned explicitly:
+# without it rustc links with host `cc`, whose rust-lld runs in x86-64
+# mode and rejects the aarch64-only `--fix-cortex-a53-843419` flag.
+CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+  npm run build -- --target aarch64-unknown-linux-gnu
+npm run build -- --target aarch64-apple-darwin      # macOS only
+npm run build -- --target x86_64-pc-windows-msvc   # Windows only
+```
+
+## Platform packages (npm prebuilds)
+
+An npm-installed user never builds anything: `packages/js` lists
+one `optionalDependency` per platform —
+`dusrelpdf-linux-x64-gnu`, `dusrelpdf-linux-x64-musl`,
+`dusrelpdf-linux-arm64-gnu`, `dusrelpdf-darwin-x64`,
+`dusrelpdf-darwin-arm64`, `dusrelpdf-win32-x64-msvc` — each a tiny
+package holding one `.node` file. npm picks the matching one by
+the `os` / `cpu` / `libc` fields in its `package.json`, whose
+`main` points straight at the `.node`; `packages/js/src/index.ts`
+resolves that package by name (`require.resolve`) and falls back
+to WASM when no prebuild matches.
+
+The platform packages live in `npm/<triple>/` here (manifests
+committed, `.node` files gitignored — they are staged at release
+time, never committed). They are managed with the standard napi-rs
+CLI commands, configured in this directory's `package.json`
+(`napi.name` is the binary name, `napi.package.name` is the
+platform-package prefix, `napi.triples` is the target list —
+note: this CLI version (2.18) reads `triples`, not the legacy
+`targets` / `packageName` fields):
+
+```sh
+npm run create-npm-dir  # (re)generate npm/<triple>/package.json + README.md
+npm run artifacts       # copy built .node files into npm/<triple>/ (CI: .github/workflows/napi.yml)
+node scripts/verify-platforms.mjs            # manifests + optionalDependencies agree
+node scripts/verify-platforms.mjs --staged  # ...and the .node files are staged
+npm run version           # sync versions into npm/<triple>/ after a bump
+```
+
+This `package.json` is a **private build-tool manifest**
+(`"private": true`) — it is never published, so it has no `main`
+field: the `.node` filename is per-platform, and the real
+per-platform `main` fields live in `npm/<triple>/package.json`.
+`napi build` also writes a generated `index.js` / `index.d.ts`
+here (the CLI's own loader + types); they are build outputs, not
+the loader `packages/js` uses.
+
+Publishing order (release flow — nothing here publishes on its
+own): platform packages first, root last. `npm run prepublishOnly`
+here runs `napi prepublish -t npm --skip-gh-release`, which
+updates `optionalDependencies` to the exact current version and
+`npm publish`es each `npm/<triple>` package (the GitHub-release
+upload is skipped: releases are the release workflow's job).
+`packages/js` has a `prepublishOnly` that delegates to this one,
+so `npm publish` in `packages/js` publishes the platforms first
+and the root package last. Keep the two `optionalDependencies`
+lists identical — `verify-platforms.mjs` checks that.
+
 ## Contract
 
 Same as the WASM binding (`crates/dusrelpdf-wasm`):
@@ -79,6 +142,8 @@ the `phase2` workflow instead.
 
 ## Status
 
-Part of dusrelpdf Phase 2. Not published to npm — there is no
-separate npm package for the addon; it is loaded directly from
-this directory by `packages/js`.
+Part of dusrelpdf Phase 2. Not published to npm yet — neither the
+root `dusrelpdf` package nor the `dusrelpdf-<triple>` platform
+packages. The wiring above (platform manifests, `optionalDependencies`,
+`napi.yml`, `prepublishOnly`) is ready; the first publish follows
+the release flow (platform packages first, root last).

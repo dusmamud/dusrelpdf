@@ -39,7 +39,12 @@ EXCLUDE_SUFFIXES = (".whl", ".pyc", ".wasm", ".so", ".node")
 EXCLUDE_FILES = {".DS_Store"}
 # Generated paths (wasm-pack copies LICENSE next to its output; the
 # website build script copies the WASM bundle into public/wasm/).
-EXCLUDE_PATHS = {"website/src/LICENSE", "packages/LICENSE"}
+EXCLUDE_PATHS = {"website/src/LICENSE", "packages/LICENSE",
+                 # Assembled vendored static libs (generated from chunks
+                 # by packages/go/lib/assemble.sh — never push the
+                 # assembled files; the chunks are the committed form)
+                 "packages/go/lib/linux-amd64/libdusrelpdf.a",
+                 "packages/go/lib/linux-arm64/libdusrelpdf.a"}
 EXCLUDE_PREFIXES = ("website/public/wasm/",)
 
 

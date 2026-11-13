@@ -1,0 +1,16 @@
+# Downloaded / locally placed native artifacts — never commit these.
+# (The .gitkeep files below each directory keep the locations visible.)
+/ios/Dusrelpdf.xcframework/
+/ios/dusrelpdf.xcframework.zip
+/ios/Frameworks/*
+!/ios/Frameworks/.gitkeep
+/macos/Dusrelpdf.xcframework/
+/macos/dusrelpdf.xcframework.zip
+/macos/Frameworks/*
+!/macos/Frameworks/.gitkeep
+/android/src/main/jniLibs/*
+!/android/src/main/jniLibs/.gitkeep
+/linux/third_party/*
+!/linux/third_party/.gitkeep
+/windows/third_party/*
+!/windows/third_party/.gitkeep

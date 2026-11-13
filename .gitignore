@@ -16,3 +16,7 @@ website/src/LICENSE
 packages/LICENSE
 .DS_Store
 *.node
+# Assembled vendored static libs (generated from the committed chunks
+# by packages/go/lib/assemble.sh — never commit the assembled files)
+packages/go/lib/linux-amd64/libdusrelpdf.a
+packages/go/lib/linux-arm64/libdusrelpdf.a

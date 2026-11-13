@@ -3,8 +3,31 @@ name: Release
 # Manual only, and release-pr ONLY — it opens a version-bump PR, it
 # never publishes anything. Publishing needs the maintainer to set up
 # Trusted Publishing on crates.io / PyPI / npm first.
+#
+# Two jobs, in order:
+#   1. release-plz — runs `release-plz release-pr`, which opens or
+#      updates the release PR from commits touching the publishable
+#      crate (crates/dusrelpdf/). Its PR branch is named
+#      `release-plz-YYYY-MM-DDTHH-MM-SSZ`.
+#   2. satellite-fallback — covers the case release-plz cannot see:
+#      a batch that only touches bindings / packages / website / docs
+#      (e.g. the whole Phase 2 bindings batch) makes release-plz say
+#      "already up to date" and open no PR. When release-plz found
+#      nothing to do, this job bumps the patch version and opens the
+#      same kind of release PR for the satellite changes.
+#      It NEVER runs while a release PR is open (checked via `gh pr
+#      list` first), it runs in its own job with a fresh checkout of
+#      main (so it cannot touch release-plz's working tree), and the
+#      decision logic lives in scripts/release_fallback.sh — see that
+#      file for the full safety design and its tests.
 on:
   workflow_dispatch:
+
+# Serialize dispatches: two runs must never race on the same
+# release-plz-* branch.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -25,3 +48,67 @@ jobs:
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  satellite-fallback:
+    name: satellite-only fallback
+    needs: release-plz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Guard 1: if release-plz opened (or updated) a release PR, stay
+      # out entirely — its PR is the release PR, ours would be a
+      # duplicate. release-plz's branches are `release-plz-*` (plus the
+      # legacy `release-plz/` prefix); match both.
+      - name: Check for an open release PR
+        id: guard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          open_prs=$(gh pr list --state open --json headRefName \
+            --jq '[.[] | select(.headRefName | startswith("release-plz"))] | length')
+          echo "open_release_prs=$open_prs" >> "$GITHUB_OUTPUT"
+          echo "open release PRs on a release-plz branch: $open_prs"
+
+      # Guard 2 + decision: scripts/release_fallback.sh check only
+      # says yes when a tag exists, the local version equals the tag,
+      # satellite files changed since the tag, and the Rust core did
+      # not change. Anything else exits 1 and this step is a no-op.
+      - name: Check whether a satellite-only bump is due
+        id: check
+        if: steps.guard.outputs.open_release_prs == '0'
+        run: |
+          if NEW_VERSION=$(bash scripts/release_fallback.sh check 2>check.err); then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "$NEW_VERSION" >> "$GITHUB_OUTPUT"
+            echo "satellite bump due: $NEW_VERSION"
+          else
+            cat check.err
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "no satellite fallback needed"
+          fi
+
+      # The script bumps the version + changelog in the working tree
+      # only; commit / branch / PR happen here, on a branch named
+      # exactly like release-plz's own branches, so the next
+      # release-plz run recognises this PR as its own and updates it
+      # instead of opening a second one.
+      - name: Apply the satellite bump and open the release PR
+        if: steps.guard.outputs.open_release_prs == '0' && steps.check.outputs.needed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NEW_VERSION=$(bash scripts/release_fallback.sh apply)
+          NEW_VERSION="${NEW_VERSION#NEW_VERSION=}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          branch="release-plz-$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+          git checkout -b "$branch"
+          git add -A
+          git commit -m "chore: release v$NEW_VERSION"
+          git push -u origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "chore: release v$NEW_VERSION" \
+            --body "Satellite-only release (fallback): release-plz found nothing to release because no commit since the last tag touched the Rust core (crates/dusrelpdf/) — the changes since the last tag are bindings / packages / website only. This PR bumps the patch version and moves the CHANGELOG.md [Unreleased] notes into a dated [$NEW_VERSION] entry, same as a release-plz PR would. The next release-plz run will update this PR (branch follows the release-plz- prefix) instead of opening a second one."

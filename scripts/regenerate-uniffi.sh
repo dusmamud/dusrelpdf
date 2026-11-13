@@ -60,8 +60,32 @@ trap 'rm -rf "$OUT"' EXIT
 "$CLI_BIN" generate --library "$LIB" --language kotlin --out-dir "$OUT/kotlin"
 "$CLI_BIN" generate --library "$LIB" --language swift --out-dir "$OUT/swift"
 
+# Generated files ONLY (never the whole directories): bindings/kotlin/ now
+# also holds the Gradle library project and bindings/swift/ the SwiftPM
+# package — wiping either directory would delete them. The Swift package
+# keeps byte-identical copies under Sources/ (checked by mobile.yml),
+# so regenerate refreshes those too.
+GEN_KT="bindings/kotlin/uniffi"
+GEN_SWIFT_FILES=(
+    "dusrelpdf_uniffi.swift"
+    "dusrelpdf_uniffiFFI.h"
+    "dusrelpdf_uniffiFFI.modulemap"
+)
+
 if [[ "${1:-}" == "--check" ]]; then
-    if diff -r bindings/kotlin "$OUT/kotlin" && diff -r bindings/swift "$OUT/swift"; then
+    OK=1
+    diff -r "$GEN_KT" "$OUT/kotlin/uniffi" || OK=0
+    for f in "${GEN_SWIFT_FILES[@]}"; do
+        diff -q "bindings/swift/$f" "$OUT/swift/$f" > /dev/null || OK=0
+    done
+    diff -q "bindings/swift/Sources/Dusrelpdf/dusrelpdf_uniffi.swift" "$OUT/swift/dusrelpdf_uniffi.swift" > /dev/null || OK=0
+    diff -q "bindings/swift/Sources/dusrelpdf_uniffiFFI/dusrelpdf_uniffiFFI.h" "$OUT/swift/dusrelpdf_uniffiFFI.h" > /dev/null || OK=0
+    # Sources/.../module.modulemap is intentionally NOT byte-identical to
+    # the generated file: it uses `umbrella header` (SwiftPM form) where
+    # the generator emits `header`. Check only that the adapted form is
+    # still present; regenerate mode never overwrites it.
+    grep -q 'umbrella header "dusrelpdf_uniffiFFI.h"' "bindings/swift/Sources/dusrelpdf_uniffiFFI/module.modulemap" || OK=0
+    if [[ "$OK" == 1 ]]; then
         echo "Bindings are up to date (byte-identical)."
     else
         echo "error: committed bindings differ from generated output." >&2
@@ -69,12 +93,19 @@ if [[ "${1:-}" == "--check" ]]; then
         exit 1
     fi
 else
-    rm -rf bindings/kotlin bindings/swift
-    mkdir -p bindings
-    cp -r "$OUT/kotlin" bindings/kotlin
-    cp -r "$OUT/swift" bindings/swift
+    rm -rf "$GEN_KT"
+    mkdir -p "$GEN_KT"
+    cp -r "$OUT/kotlin/uniffi/." "$GEN_KT/"
+    for f in "${GEN_SWIFT_FILES[@]}"; do
+        cp "$OUT/swift/$f" "bindings/swift/$f"
+    done
+    cp "$OUT/swift/dusrelpdf_uniffi.swift" "bindings/swift/Sources/Dusrelpdf/dusrelpdf_uniffi.swift"
+    cp "$OUT/swift/dusrelpdf_uniffiFFI.h" "bindings/swift/Sources/dusrelpdf_uniffiFFI/dusrelpdf_uniffiFFI.h"
+    # NOTE: Sources/.../module.modulemap is deliberately NOT overwritten —
+    # it is the hand-adapted `umbrella header` form, not the generated
+    # `header` form.
     trap - EXIT
     rm -rf "$OUT"
-    echo "Regenerated bindings/kotlin and bindings/swift."
+    echo "Regenerated $GEN_KT and the Swift generated files (incl. Sources/ copies)."
     echo "Verify with: scripts/regenerate-uniffi.sh --check"
 fi

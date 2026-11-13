@@ -13,7 +13,10 @@ publish = false
 # an rlib, so `target/release/libdusrelpdf.{so,dylib,dll}` is this
 # crate's cdylib — the file Go (cgo) and Flutter (dart:ffi) load.
 name = "dusrelpdf"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
+# `staticlib` is needed too: the Go module vendors libdusrelpdf.a
+# (packages/go/lib/<GOOS>-<GOARCH>/) so `go get` users do NOT need
+# Rust or a repo checkout — see packages/go/lib/README.md.
 # The lib name intentionally matches the core crate, so doctests confuse
 # rustdoc with two `dusrelpdf` rlibs (E0464); the crate has no doc
 # examples, so doctests are disabled rather than renaming the cdylib

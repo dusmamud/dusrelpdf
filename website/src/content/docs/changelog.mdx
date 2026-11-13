@@ -6,6 +6,33 @@ description: What changed in each dusrelpdf release.
 All notable changes to dusrelpdf. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+Not released yet — work in `main` since 0.1.0, same 0.1.0 core,
+nothing published yet.
+
+### Added
+
+- **Phase 2 bindings** — the same core, now reachable from four more
+  ecosystems:
+  - **Native Node addon** — napi-rs (`crates/dusrelpdf-napi`), lazy-loaded
+    with a WASM fallback; the compiled `.node` binary is not committed.
+  - **Kotlin + Swift** — UniFFI 0.28.3 bindings
+    (`crates/dusrelpdf-uniffi`); the generated sources are committed
+    under `bindings/`, and byte-identical regeneration is checked in CI.
+  - **Go** — C-API (`crates/dusrelpdf-ffi`, cbindgen header
+    `dusrelpdf.h`) with a cgo wrapper module
+    `github.com/dusmamud/dusrelpdf-go` (no release/tag yet).
+  - **Flutter / Dart** — a Dart package
+    (`packages/flutter/dusrelpdf`) using `dart:ffi` over the same shared
+    library.
+
+### Fixed
+
+- **CLI rotate** — `rotate --angle -90` now works as well as
+  `--angle=-90` (clap `allow_negative_numbers`), with regression tests.
+- `packages/LICENSE` is ignored — wasm-pack regenerates it on build.
+
 ## [0.1.0] - 2026-11-12
 
 First public release. One package, all 10 operations, one Rust core with

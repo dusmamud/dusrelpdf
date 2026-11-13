@@ -1,0 +1,4 @@
+module dusrelpdf_uniffiFFI {
+    umbrella header "dusrelpdf_uniffiFFI.h"
+    export *
+}

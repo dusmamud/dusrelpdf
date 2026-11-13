@@ -211,6 +211,20 @@ input bytes unchanged; `extractPages(pdf, [])` is `EMPTY_INPUT`.
   would render as an opaque rectangle).
 - Whole documents live in memory; there is no streaming mode.
 
+## Native addon (optional, faster)
+
+`npm install dusrelpdf` also installs a prebuilt native addon for
+your platform when one exists — the `dusrelpdf-<triple>`
+`optionalDependencies` (`linux-x64-gnu`, `linux-x64-musl`,
+`linux-arm64-gnu`, `darwin-x64`, `darwin-arm64`, `win32-x64-msvc`),
+each a tiny package holding one `.node` file. The loader picks it
+up automatically and `backend()` reports `"native"`; when no
+prebuild matches your platform (or `DUSREL_PDF_FORCE_WASM=1` is
+set) it falls back to the bundled WASM build and `backend()`
+reports `"wasm"`. Same API, same errors, either way — the native
+path is just faster. The prebuilds are built by
+`.github/workflows/napi.yml` from `crates/dusrelpdf-napi`.
+
 ## Building from source
 
 The WASM is built from the Rust core in this repo
@@ -227,6 +241,20 @@ npm test          # vitest run (pretest rebuilds the wasm if missing)
 `npm run build` writes the wasm-pack output to `wasm-pkg/` (gitignored)
 and the compiled TypeScript to `dist/` (gitignored). The website uses
 `--target web` separately; this package only owns `--target nodejs`.
+The published tarball ships the WASM files (`wasm-pkg/dusrelpdf_wasm.js`
++ `.wasm`) alongside `dist/` — the fallback only works on an
+installed package because of that (listed file-by-file in
+`package.json` `files`: a bare `"wasm-pkg"` directory entry does not
+survive the `*` in wasm-pack's generated `wasm-pkg/.gitignore`).
+
+To build the native addon locally instead of (or as well as) the
+WASM build:
+
+```sh
+npm run native:build   # napi build --platform --release, in crates/dusrelpdf-napi
+npm test               # native tests run when the .node exists, else they skip
+DUSREL_PDF_FORCE_WASM=1 npm test   # forced-WASM run, same suite
+```
 
 ## Licence
 

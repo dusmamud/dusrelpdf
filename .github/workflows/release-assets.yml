@@ -1,0 +1,566 @@
+name: Release assets — C library archives
+
+# Prebuilt C library archives (static + shared) for every supported
+# platform, uploaded as WORKFLOW ARTIFACTS.
+#
+# This workflow NEVER creates a GitHub release, NEVER creates a tag
+# and NEVER publishes anything to any registry. Until the first real
+# release exists there is nowhere to attach these: a maintainer
+# downloads the artifacts from the run and attaches them by hand (or
+# a later release job consumes them). Nothing here runs on push to a
+# branch — manual dispatch, or a C-library tag, only.
+#
+# Triggers:
+# - workflow_dispatch: the normal way to run it. Pick "Run workflow".
+# - push of a tag matching c-v* (e.g. c-v0.1.0): the C-library
+#   release tag, if/when the project adopts one. Still artifacts
+#   only — no release is created.
+#
+# Archives produced (one per platform, version from Cargo.toml):
+# - dusrelpdf-c-<ver>-linux-x86_64-glibc.tar.gz   (.a + .so + versioned symlinks)
+# - dusrelpdf-c-<ver>-linux-aarch64-glibc.tar.gz  (.a + .so + versioned symlinks)
+# - dusrelpdf-c-<ver>-linux-x86_64-musl.tar.gz    (.a + .so, fully static musl)
+# - dusrelpdf-c-<ver>-macos-universal.tar.gz      (universal .a + .dylib via lipo)
+# - dusrelpdf-c-<ver>-windows-x86_64-msvc.zip    (.lib + .dll + import lib)
+# - dusrelpdf-c-<ver>-windows-x86_64-gnu.tar.gz   (GNU .a for Go/MinGW cgo)
+#
+# Every archive contains dusrelpdf.h, a README with the
+# free-function ownership contract, and SHA256SUMS.
+#
+# The Go module's vendored libraries (packages/go/lib/<GOOS>-<GOARCH>/)
+# are NOT updated by this workflow — a maintainer copies the matching
+# .a out of the artifacts and commits it (see packages/go/lib/README.md).
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'c-v*'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: |
+          VERSION=$(sed -n '/\[workspace.package\]/,/^\[/p' Cargo.toml \
+            | grep -m1 '^version' | cut -d'"' -f2)
+          test -n "$VERSION" || { echo "could not read version from Cargo.toml" >&2; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "dusrelpdf $VERSION"
+
+  linux:
+    name: Linux ${{ matrix.target }} (${{ matrix.libc }})
+    needs: version
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            arch: x86_64
+            libc: glibc
+          - target: aarch64-unknown-linux-gnu
+            arch: aarch64
+            libc: glibc
+          - target: x86_64-unknown-linux-musl
+            arch: x86_64
+            libc: musl
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TARGET: ${{ matrix.target }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cross linker
+        run: |
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gcc-aarch64-linux-gnu
+          elif [ "${{ matrix.target }}" = "x86_64-unknown-linux-musl" ]; then
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq musl-tools
+          fi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-assets-${{ matrix.target }}
+      - name: Build staticlib + cdylib
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+        run: cargo build -p dusrelpdf-ffi --release --target "$TARGET"
+      - name: Assemble archive
+        run: |
+          set -euo pipefail
+          STAGE="dusrelpdf-c-$VERSION-linux-$ARCH-${{ matrix.libc }}"
+          mkdir -p "$STAGE"
+          cp "target/$TARGET/release/libdusrelpdf.a" "$STAGE/"
+          # A static Rust archive is large (~57 MB); strip the debug
+          # info — saves ~10%, keeps all exported symbols. The host
+          # strip cannot read aarch64 objects, so use the cross strip.
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            aarch64-linux-gnu-strip --strip-debug "$STAGE/libdusrelpdf.a"
+          else
+            strip --strip-debug "$STAGE/libdusrelpdf.a"
+          fi
+          # Versioned shared library: real file is libdusrelpdf.so.<ver>;
+          # libdusrelpdf.so.0 and libdusrelpdf.so are symlinks to it.
+          cp "target/$TARGET/release/libdusrelpdf.so" "$STAGE/libdusrelpdf.so.$VERSION"
+          ln -s "libdusrelpdf.so.$VERSION" "$STAGE/libdusrelpdf.so.0"
+          ln -s "libdusrelpdf.so.$VERSION" "$STAGE/libdusrelpdf.so"
+          cp crates/dusrelpdf-ffi/dusrelpdf.h "$STAGE/"
+          cp LICENSE "$STAGE/"
+          cat > "$STAGE/README.md" <<EOF
+          # dusrelpdf C library $VERSION — Linux $ARCH (${{ matrix.libc }})
+          
+          Prebuilt C ABI for dusrelpdf (merge, split, extract, remove,
+          reorder, rotate, images-to-PDF, watermark, page numbers,
+          signature-image placement). Every operation takes bytes in
+          and returns bytes out; errors are JSON with a stable code
+          plus English and Hindi messages. See \`dusrelpdf.h\`.
+          
+          ## Files
+          
+          - \`libdusrelpdf.a\` — static library. Link it directly:
+            \`cc main.c libdusrelpdf.a -ldl -lpthread -lm\`
+          - \`libdusrelpdf.so.$VERSION\` — shared library
+            (\`libdusrelpdf.so.0\` and \`libdusrelpdf.so\` are symlinks
+            to it). Link with \`-L. -ldusrelpdf\` and ship the .so
+            next to your binary or install it in the library path.
+          - \`dusrelpdf.h\` — the C API. Include it, nothing else.
+          - \`LICENSE\` — MIT.
+          
+          ## Ownership contract (do not skip this)
+          
+          - Inputs are BORROWED: byte buffers, \`DusrelBytes\` arrays
+            and JSON strings are read only for the duration of the
+            call. You keep owning them; the library never frees them
+            and never holds a pointer after returning.
+          - Outputs are CALLER-OWNED: every operation returns a heap
+            allocated \`DusrelResult*\` (single output) or
+            \`DusrelResultList*\` (multi-output: split family). Free
+            it EXACTLY ONCE with the matching free function
+            (\`dusrelpdf_free_result\` /
+            \`dusrelpdf_free_result_list\`), which frees the struct,
+            the output byte buffer(s) and the error string. Do not
+            free the inner buffers yourself, do not free twice, do
+            not mix the two free functions. Both free functions
+            accept NULL (no-op).
+          - On success (\`ok == 1\`): \`data\` holds the output bytes,
+            \`error_json\` is NULL. \`get_pdf_info\` and
+            \`bulk_extract\` return UTF-8 JSON in \`data\` instead of
+            PDF bytes.
+          - On failure (\`ok == 0\`): \`data\` is NULL and
+            \`error_json\` is a NUL-terminated JSON string
+            \`{"code": "...", "message_en": "...", "message_hi": "..."}\`.
+          - Functions NEVER return NULL and NEVER panic across the
+            FFI boundary. The only exception is \`dusrelpdf_version()\`,
+            which returns a static string you must NOT free.
+          - Options are partial JSON objects with the same snake_case
+            field names as the Rust core options. Missing keys keep
+            the Rust defaults; NULL or "" means all defaults.
+          
+          ## Honest limits (v$VERSION)
+          
+          No rendering, no tolerant repair, merge drops original
+          outlines (rebuilt flat), watermark / page-number text is
+          ASCII only, signature is a raster image, not a
+          cryptographic digital signature. Whole documents live in
+          memory; no streaming.
+          
+          Verify integrity: \`sha256sum -c SHA256SUMS\`
+          EOF
+          # The heredoc body carries the YAML block indent (10 spaces);
+          # strip it so the README renders as Markdown, not a code block.
+          sed -i 's/^          //' "$STAGE/README.md"
+          tar --sort=name --owner=0 --group=0 -czf "$STAGE.tar.gz" "$STAGE"
+          ls -la "$STAGE" "$STAGE.tar.gz"
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          STAGE="dusrelpdf-c-$VERSION-linux-$ARCH-${{ matrix.libc }}"
+          tar -xzf "$STAGE.tar.gz"
+          cd "$STAGE"
+          sha256sum libdusrelpdf.a "libdusrelpdf.so.$VERSION" dusrelpdf.h README.md LICENSE > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          cd ..
+          tar --sort=name --owner=0 --group=0 -czf "$STAGE.tar.gz" "$STAGE"
+      - name: Verify exported symbols
+        run: |
+          set -euo pipefail
+          STAGE="dusrelpdf-c-$VERSION-linux-$ARCH-${{ matrix.libc }}"
+          tar -xzf "$STAGE.tar.gz"
+          # All 18 exports must be present in both libraries.
+          # (Host nm cannot read aarch64 objects — use the cross nm.)
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            NM=aarch64-linux-gnu-nm
+          else
+            NM=nm
+          fi
+          n_a=$($NM --defined-only "$STAGE/libdusrelpdf.a" | grep -c ' T dusrelpdf_')
+          n_so=$($NM -D --defined-only "$STAGE/libdusrelpdf.so.$VERSION" | grep -c ' T dusrelpdf_')
+          echo "$STAGE/libdusrelpdf.a: $n_a dusrelpdf_ symbols"
+          echo "$STAGE/libdusrelpdf.so.$VERSION: $n_so dusrelpdf_ symbols"
+          test "$n_a" -eq 18 || { echo "expected 18 dusrelpdf_ symbols in the .a, got $n_a" >&2; exit 1; }
+          test "$n_so" -eq 18 || { echo "expected 18 dusrelpdf_ symbols in the .so, got $n_so" >&2; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dusrelpdf-c-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}-${{ matrix.libc }}
+          path: dusrelpdf-c-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}-${{ matrix.libc }}.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+
+  macos:
+    name: macOS universal
+    needs: version
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-assets-macos
+      - name: Build both architectures
+        run: |
+          cargo build -p dusrelpdf-ffi --release --target aarch64-apple-darwin
+          cargo build -p dusrelpdf-ffi --release --target x86_64-apple-darwin
+      - name: Assemble universal archive
+        run: |
+          set -euo pipefail
+          STAGE="dusrelpdf-c-$VERSION-macos-universal"
+          mkdir -p "$STAGE"
+          # Universal (fat) static + shared libraries via lipo.
+          lipo -create \
+            target/aarch64-apple-darwin/release/libdusrelpdf.a \
+            target/x86_64-apple-darwin/release/libdusrelpdf.a \
+            -output "$STAGE/libdusrelpdf.a"
+          strip -S "$STAGE/libdusrelpdf.a"
+          # Universal (fat) shared library via lipo.
+          lipo -create \
+            target/aarch64-apple-darwin/release/libdusrelpdf.dylib \
+            target/x86_64-apple-darwin/release/libdusrelpdf.dylib \
+            -output "$STAGE/libdusrelpdf.$VERSION.dylib"
+          ln -s "libdusrelpdf.$VERSION.dylib" "$STAGE/libdusrelpdf.dylib"
+          lipo -info "$STAGE/libdusrelpdf.a" "$STAGE/libdusrelpdf.$VERSION.dylib"
+          cp crates/dusrelpdf-ffi/dusrelpdf.h "$STAGE/"
+          cp LICENSE "$STAGE/"
+          # (BSD tar on macOS: no GNU --sort-name/--owner flags.)
+          cat > "$STAGE/README.md" <<EOF
+          # dusrelpdf C library $VERSION — macOS universal (arm64 + x86_64)
+          
+          Prebuilt C ABI for dusrelpdf (merge, split, extract, remove,
+          reorder, rotate, images-to-PDF, watermark, page numbers,
+          signature-image placement). Every operation takes bytes in
+          and returns bytes out; errors are JSON with a stable code
+          plus English and Hindi messages. See \`dusrelpdf.h\`.
+          
+          ## Files
+          
+          - \`libdusrelpdf.a\` — universal static library (arm64 +
+            x86_64). Link it directly:
+            \`cc main.c libdusrelpdf.a -framework CoreFoundation -framework Security\`
+          - \`libdusrelpdf.$VERSION.dylib\` — universal shared library
+            (\`libdusrelpdf.dylib\` is a symlink to it). Link with
+            \`-L. -ldusrelpdf\` and ship the .dylib next to your
+            binary or install it in the library path.
+          - \`dusrelpdf.h\` — the C API. Include it, nothing else.
+          - \`LICENSE\` — MIT.
+          
+          ## Ownership contract (do not skip this)
+          
+          - Inputs are BORROWED: byte buffers, \`DusrelBytes\` arrays
+            and JSON strings are read only for the duration of the
+            call. You keep owning them; the library never frees them
+            and never holds a pointer after returning.
+          - Outputs are CALLER-OWNED: every operation returns a heap
+            allocated \`DusrelResult*\` (single output) or
+            \`DusrelResultList*\` (multi-output: split family). Free
+            it EXACTLY ONCE with the matching free function
+            (\`dusrelpdf_free_result\` /
+            \`dusrelpdf_free_result_list\`), which frees the struct,
+            the output byte buffer(s) and the error string. Do not
+            free the inner buffers yourself, do not free twice, do
+            not mix the two free functions. Both free functions
+            accept NULL (no-op).
+          - On success (\`ok == 1\`): \`data\` holds the output bytes,
+            \`error_json\` is NULL. \`get_pdf_info\` and
+            \`bulk_extract\` return UTF-8 JSON in \`data\` instead of
+            PDF bytes.
+          - On failure (\`ok == 0\`): \`data\` is NULL and
+            \`error_json\` is a NUL-terminated JSON string
+            \`{"code": "...", "message_en": "...", "message_hi": "..."}\`.
+          - Functions NEVER return NULL and NEVER panic across the
+            FFI boundary. The only exception is \`dusrelpdf_version()\`,
+            which returns a static string you must NOT free.
+          - Options are partial JSON objects with the same snake_case
+            field names as the Rust core options. Missing keys keep
+            the Rust defaults; NULL or "" means all defaults.
+          
+          ## Honest limits (v$VERSION)
+          
+          No rendering, no tolerant repair, merge drops original
+          outlines (rebuilt flat), watermark / page-number text is
+          ASCII only, signature is a raster image, not a
+          cryptographic digital signature. Whole documents live in
+          memory; no streaming.
+          
+          Verify integrity: \`shasum -a 256 -c SHA256SUMS\`
+          EOF
+          # Strip the YAML block indent so the README renders as Markdown.
+          sed -i 's/^          //' "$STAGE/README.md"
+          tar -czf "$STAGE.tar.gz" "$STAGE"
+          ls -la "$STAGE" "$STAGE.tar.gz"
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          STAGE="dusrelpdf-c-$VERSION-macos-universal"
+          tar -xzf "$STAGE.tar.gz"
+          cd "$STAGE"
+          shasum -a 256 libdusrelpdf.a "libdusrelpdf.$VERSION.dylib" dusrelpdf.h README.md LICENSE > SHA256SUMS
+          shasum -a 256 -c SHA256SUMS
+          cd ..
+          tar -czf "$STAGE.tar.gz" "$STAGE"
+      - name: Verify exported symbols
+        run: |
+          set -euo pipefail
+          STAGE="dusrelpdf-c-$VERSION-macos-universal"
+          tar -xzf "$STAGE.tar.gz"
+          for f in "$STAGE/libdusrelpdf.a" "$STAGE/libdusrelpdf.$VERSION.dylib"; do
+            n=$(nm -g -U "$f" 2>/dev/null | grep -c ' _dusrelpdf_' || true)
+            echo "$f: $n dusrelpdf_ symbols"
+            test "$n" -eq 18 || { echo "expected 18 dusrelpdf_ symbols in $f, got $n" >&2; exit 1; }
+            echo "--- $f architectures:"; lipo -info "$f"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dusrelpdf-c-${{ needs.version.outputs.version }}-macos-universal
+          path: dusrelpdf-c-${{ needs.version.outputs.version }}-macos-universal.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+
+  windows-msvc:
+    name: Windows x86_64 (MSVC)
+    needs: version
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-assets-windows-msvc
+      - name: Build staticlib + cdylib (MSVC)
+        run: cargo build -p dusrelpdf-ffi --release --target x86_64-pc-windows-msvc
+      - name: Assemble archive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = "dusrelpdf-c-$env:VERSION-windows-x86_64-msvc"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "target\x86_64-pc-windows-msvc\release\dusrelpdf.lib" "$stage\"
+          Copy-Item "target\x86_64-pc-windows-msvc\release\dusrelpdf.dll" "$stage\"
+          Copy-Item "target\x86_64-pc-windows-msvc\release\dusrelpdf.dll.lib" "$stage\"
+          Copy-Item "crates\dusrelpdf-ffi\dusrelpdf.h" "$stage\"
+          Copy-Item "LICENSE" "$stage\"
+          @"
+          # dusrelpdf C library $env:VERSION — Windows x86_64 (MSVC)
+          
+          Prebuilt C ABI for dusrelpdf (merge, split, extract, remove,
+          reorder, rotate, images-to-PDF, watermark, page numbers,
+          signature-image placement). Every operation takes bytes in
+          and returns bytes out; errors are JSON with a stable code
+          plus English and Hindi messages. See ``dusrelpdf.h``.
+          
+          ## Files
+          
+          - ``dusrelpdf.lib`` — static library (MSVC). Link it in
+            Visual Studio or with ``link main.obj dusrelpdf.lib
+            ws2_32.lib userenv.lib bcrypt.lib ntdll.lib``.
+          - ``dusrelpdf.dll`` + ``dusrelpdf.dll.lib`` — shared library
+            and its import library. Link against ``dusrelpdf.dll.lib``
+            and ship ``dusrelpdf.dll`` next to your .exe.
+          - ``dusrelpdf.h`` — the C API. Include it, nothing else.
+          - ``LICENSE`` — MIT.
+          
+          NOTE: the MSVC ``.lib`` is for MSVC/clang-cl. MinGW (Go cgo)
+          cannot link it — the GNU static library is in the separate
+          ``dusrelpdf-c-<version>-windows-x86_64-gnu`` artifact.
+          
+          ## Ownership contract (do not skip this)
+          
+          - Inputs are BORROWED: byte buffers, ``DusrelBytes`` arrays
+            and JSON strings are read only for the duration of the
+            call. You keep owning them; the library never frees them
+            and never holds a pointer after returning.
+          - Outputs are CALLER-OWNED: every operation returns a heap
+            allocated ``DusrelResult*`` (single output) or
+            ``DusrelResultList*`` (multi-output: split family). Free
+            it EXACTLY ONCE with the matching free function
+            (``dusrelpdf_free_result`` /
+            ``dusrelpdf_free_result_list``), which frees the struct,
+            the output byte buffer(s) and the error string. Do not
+            free the inner buffers yourself, do not free twice, do
+            not mix the two free functions. Both free functions
+            accept NULL (no-op).
+          - On success (``ok == 1``): ``data`` holds the output bytes,
+            ``error_json`` is NULL. ``get_pdf_info`` and
+            ``bulk_extract`` return UTF-8 JSON in ``data`` instead of
+            PDF bytes.
+          - On failure (``ok == 0``): ``data`` is NULL and
+            ``error_json`` is a NUL-terminated JSON string
+            ``{"code": "...", "message_en": "...", "message_hi": "..."}``.
+          - Functions NEVER return NULL and NEVER panic across the
+            FFI boundary. The only exception is ``dusrelpdf_version()``,
+            which returns a static string you must NOT free.
+          - Options are partial JSON objects with the same snake_case
+            field names as the Rust core options. Missing keys keep
+            the Rust defaults; NULL or "" means all defaults.
+          
+          ## Honest limits (v$env:VERSION)
+          
+          No rendering, no tolerant repair, merge drops original
+          outlines (rebuilt flat), watermark / page-number text is
+          ASCII only, signature is a raster image, not a
+          cryptographic digital signature. Whole documents live in
+          memory; no streaming.
+          
+          Verify integrity: ``Get-FileHash <file> -Algorithm SHA256``
+          and compare with SHA256SUMS.
+          "@ | Out-File -Encoding utf8 "$stage\README.md"
+          # The here-string carries the YAML block indent (10 spaces);
+          # strip it so the README renders as Markdown, not a code block.
+          (Get-Content "$stage\README.md") -replace '^          ', '' | Out-File -Encoding utf8 "$stage\README.md"
+          Get-ChildItem $stage | Format-Table Name, Length
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = "dusrelpdf-c-$env:VERSION-windows-x86_64-msvc"
+          $lines = @()
+          foreach ($f in @('dusrelpdf.lib','dusrelpdf.dll','dusrelpdf.dll.lib','dusrelpdf.h','README.md','LICENSE')) {
+            $h = (Get-FileHash "$stage\$f" -Algorithm SHA256).Hash.ToLower()
+            $lines += "$h  $f"
+          }
+          $lines | Out-File -Encoding ascii "$stage\SHA256SUMS"
+          foreach ($line in (Get-Content "$stage\SHA256SUMS")) {
+            $h, $f = $line -split '  ', 2
+            $actual = (Get-FileHash "$stage\$f" -Algorithm SHA256).Hash.ToLower()
+            if ($actual -ne $h) { throw "checksum mismatch for $f" }
+          }
+          Compress-Archive -Path $stage -DestinationPath "$stage.zip" -Force
+          Get-Item "$stage.zip" | Format-Table Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dusrelpdf-c-${{ needs.version.outputs.version }}-windows-x86_64-msvc
+          path: dusrelpdf-c-${{ needs.version.outputs.version }}-windows-x86_64-msvc.zip
+          if-no-files-found: error
+          retention-days: 90
+
+  windows-gnu:
+    name: Windows x86_64 GNU staticlib (for Go cgo)
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - name: Install MinGW cross compiler
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gcc-mingw-w64-x86-64
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-assets-windows-gnu
+      - name: Build GNU staticlib
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
+        run: cargo build -p dusrelpdf-ffi --release --target x86_64-pc-windows-gnu
+      - name: Assemble + verify
+        run: |
+          set -euo pipefail
+          STAGE="dusrelpdf-c-$VERSION-windows-x86_64-gnu"
+          mkdir -p "$STAGE"
+          cp target/x86_64-pc-windows-gnu/release/libdusrelpdf.a "$STAGE/"
+          x86_64-w64-mingw32-strip --strip-debug "$STAGE/libdusrelpdf.a"
+          cp crates/dusrelpdf-ffi/dusrelpdf.h "$STAGE/"
+          cp LICENSE "$STAGE/"
+          cat > "$STAGE/README.md" <<EOF
+          # dusrelpdf C library $VERSION — Windows x86_64 (GNU/MinGW)
+          
+          GNU static library, built for MinGW cgo (the Go module's
+          \`packages/go/lib/windows-amd64/libdusrelpdf.a\`) and any
+          MinGW consumer. It is NOT linkable by MSVC — use the
+          \`-windows-x86_64-msvc\` artifact for that.
+          
+          Link: \`x86_64-w64-mingw32-gcc main.c libdusrelpdf.a
+          -lws2_32 -luserenv -lbcrypt -lntdll\`
+          
+          The ownership contract is the same as every other archive:
+          inputs are borrowed, outputs are caller-owned and freed
+          EXACTLY ONCE with \`dusrelpdf_free_result\` /
+          \`dusrelpdf_free_result_list\`, functions never return NULL
+          and never panic across the FFI boundary except
+          \`dusrelpdf_version()\`, which returns a static string you
+          must NOT free. See \`dusrelpdf.h\`.
+          
+          Verify integrity: \`sha256sum -c SHA256SUMS\`
+          EOF
+          # Strip the YAML block indent so the README renders as Markdown.
+          sed -i 's/^          //' "$STAGE/README.md"
+          cd "$STAGE"
+          sha256sum libdusrelpdf.a dusrelpdf.h README.md LICENSE > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          cd ..
+          n=$(x86_64-w64-mingw32-nm --defined-only "$STAGE/libdusrelpdf.a" 2>/dev/null | grep -c ' T dusrelpdf_' || true)
+          echo "$STAGE/libdusrelpdf.a: $n dusrelpdf_ symbols"
+          test "$n" -eq 18 || { echo "expected 18 dusrelpdf_ symbols, got $n" >&2; exit 1; }
+          tar --sort=name --owner=0 --group=0 -czf "$STAGE.tar.gz" "$STAGE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dusrelpdf-c-${{ needs.version.outputs.version }}-windows-x86_64-gnu
+          path: dusrelpdf-c-${{ needs.version.outputs.version }}-windows-x86_64-gnu.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+
+  header-drift:
+    name: Header drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cbindgen
+        run: cargo install cbindgen --version 0.29.4 --locked
+      - name: Regenerate header and compare
+        run: |
+          set -euo pipefail
+          cbindgen --config crates/dusrelpdf-ffi/cbindgen.toml \
+            --crate dusrelpdf-ffi \
+            --output /tmp/dusrelpdf-regen.h
+          diff -u crates/dusrelpdf-ffi/dusrelpdf.h /tmp/dusrelpdf-regen.h \
+            || { echo "committed crates/dusrelpdf-ffi/dusrelpdf.h is stale — regenerate it (see crates/dusrelpdf-ffi/README.md)" >&2; exit 1; }
+          diff -u packages/go/dusrelpdf.h /tmp/dusrelpdf-regen.h \
+            || { echo "vendored packages/go/dusrelpdf.h drifted from the generated header — copy the fresh header over it" >&2; exit 1; }
+          echo "header copies are in sync"

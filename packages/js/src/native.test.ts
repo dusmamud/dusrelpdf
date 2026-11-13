@@ -48,27 +48,42 @@ const redPng = (): Uint8Array =>
 
 const pageCount = (pdf: Uint8Array): number => getPdfInfo(pdf).pageCount;
 
-/** The `.node` file the loader looks for first, if it was built. */
-function nativeNodePath(): string {
+/** The `.node` file the loader looks for, if it was built or
+ *  installed: `DUSREL_PDF_NATIVE_PATH` first, then an installed
+ *  `dusrelpdf-<triple>` platform package, then the repo-relative
+ *  build in `crates/dusrelpdf-napi/` (same priority as the loader
+ *  in `./index`). `null` when none exists. */
+function nativeNodePath(): string | null {
+  const override = process.env.DUSREL_PDF_NATIVE_PATH;
+  if (override) return path.resolve(override);
   const arch = process.arch;
-  const triple =
+  const triples =
     process.platform === "linux"
-      ? `linux-${arch}-gnu`
+      ? [`linux-${arch}-gnu`, `linux-${arch}-musl`]
       : process.platform === "win32"
-        ? `win32-${arch}-msvc`
-        : `${process.platform}-${arch}`;
+        ? [`win32-${arch}-msvc`]
+        : [`${process.platform}-${arch}`];
+  for (const triple of triples) {
+    try {
+      return require.resolve(`dusrelpdf-${triple}`);
+    } catch {
+      // Not installed — try the next candidate.
+    }
+  }
   return path.resolve(
     process.cwd(),
     "..",
     "..",
     "crates",
     "dusrelpdf-napi",
-    `dusrelpdf-napi.${triple}.node`,
+    `dusrelpdf-napi.${triples[0]}.node`,
   );
 }
 
+const nativePath = nativeNodePath();
 const nativePresent =
-  fs.existsSync(nativeNodePath()) &&
+  nativePath !== null &&
+  fs.existsSync(nativePath) &&
   process.env.DUSREL_PDF_FORCE_WASM !== "1";
 const nativeIt = nativePresent ? it : it.skip;
 

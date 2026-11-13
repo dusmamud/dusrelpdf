@@ -1,0 +1,164 @@
+name: napi-rs prebuilds
+
+# Build the native napi-rs addon (`.node`) for every platform the npm
+# package ships as an `optionalDependency` (`dusrelpdf-<triple>`), and
+# run the JS suite against the native build wherever the built binary
+# can load on the runner. Nothing here publishes anything — the
+# platform packages are staged with `napi artifacts` and uploaded as
+# a CI artifact; publishing is the release flow's job.
+#
+# How install-time resolution works (see `packages/js/src/index.ts`):
+# an npm-installed `dusrelpdf` pulls the matching
+# `dusrelpdf-<triple>` optionalDependency (npm picks it by the
+# `os`/`cpu`/`libc` fields in `crates/dusrelpdf-napi/npm/<triple>/package.json`),
+# whose `main` points straight at its `.node`; the loader resolves
+# that package by name and falls back to WASM when no prebuild
+# matches (or when `DUSREL_PDF_FORCE_WASM=1` is set).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/dusrelpdf-napi/**'
+      - 'crates/dusrelpdf/**'
+      - 'crates/dusrelpdf-wasm/**'
+      - 'packages/js/**'
+      - '.github/workflows/napi.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/dusrelpdf-napi/**'
+      - 'crates/dusrelpdf/**'
+      - 'crates/dusrelpdf-wasm/**'
+      - 'packages/js/**'
+      - '.github/workflows/napi.yml'
+
+jobs:
+  build:
+    name: build ${{ matrix.triple }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Host platform: the .node loads under the runner's Node,
+          # so the full JS suite runs against the native backend.
+          - triple: linux-x64-gnu
+            target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            test: native
+          # musl .node is statically linked, so it loads on the
+          # glibc runner too — but the loader picks the gnu triple
+          # there, so the suite runs via DUSREL_PDF_NATIVE_PATH.
+          - triple: linux-x64-musl
+            target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            test: musl
+          - triple: linux-arm64-gnu
+            target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            test: native
+          # Cross-built x64 macOS binary: an arm64 Node on
+          # macos-latest cannot load it, so build only.
+          - triple: darwin-x64
+            target: x86_64-apple-darwin
+            os: macos-latest
+            test: none
+          - triple: darwin-arm64
+            target: aarch64-apple-darwin
+            os: macos-latest
+            test: native
+          - triple: win32-x64-msvc
+            target: x86_64-pc-windows-msvc
+            os: windows-latest
+            test: native
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            packages/js/package-lock.json
+            crates/dusrelpdf-napi/package-lock.json
+      - name: install wasm-pack
+        if: matrix.test != 'none'
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: install musl toolchain
+        if: matrix.triple == 'linux-x64-musl'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+      # napi symbols do not link in test binaries on the macOS/Windows
+      # linkers (same reason ci.yml excludes this crate from workspace
+      # tests); the unit tests run on the Linux jobs instead.
+      - name: napi Rust unit tests
+        if: runner.os == 'Linux'
+        run: cargo test -p dusrelpdf-napi
+      - name: build native addon
+        working-directory: crates/dusrelpdf-napi
+        run: |
+          npm ci
+          npm run build -- --target ${{ matrix.target }}
+      - name: upload .node artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dusrelpdf-napi-${{ matrix.triple }}
+          path: crates/dusrelpdf-napi/dusrelpdf-napi.${{ matrix.triple }}.node
+          if-no-files-found: error
+      - name: JS build + typecheck
+        if: matrix.test != 'none'
+        working-directory: packages/js
+        run: |
+          npm ci
+          npm run build
+          npm run typecheck
+      - name: test (native backend)
+        if: matrix.test == 'native'
+        working-directory: packages/js
+        run: npm test
+      - name: test (musl .node via override)
+        if: matrix.test == 'musl'
+        working-directory: packages/js
+        env:
+          DUSREL_PDF_NATIVE_PATH: ${{ github.workspace }}/crates/dusrelpdf-napi/dusrelpdf-napi.linux-x64-musl.node
+        run: npm test
+      - name: test (forced WASM fallback)
+        if: matrix.test != 'none'
+        working-directory: packages/js
+        env:
+          DUSREL_PDF_FORCE_WASM: "1"
+        run: npm test
+
+  collect:
+    name: stage platform packages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crates/dusrelpdf-napi/package-lock.json
+      - name: download all .node artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: dusrelpdf-napi-*
+          merge-multiple: true
+      - name: stage platform packages
+        working-directory: crates/dusrelpdf-napi
+        run: |
+          npm ci
+          npx napi artifacts -d ../../artifacts --dist npm
+      - name: verify staged platform packages
+        working-directory: crates/dusrelpdf-napi
+        run: node scripts/verify-platforms.mjs --staged
+      - name: upload staged platform packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: napi-platform-packages
+          path: crates/dusrelpdf-napi/npm
+          if-no-files-found: error

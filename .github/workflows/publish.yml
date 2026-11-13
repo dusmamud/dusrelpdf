@@ -1,0 +1,261 @@
+# Publish dusrelpdf to crates.io, npm and PyPI.
+#
+# PREPARE-ONLY — DO NOT DISPATCH UNTIL THE MANUAL SETUP IS DONE.
+# This workflow NEVER runs on branch push. It runs only on:
+#   - manual workflow_dispatch, or
+#   - a pushed version tag (`v*` or `dusrelpdf-v*`, created by the
+#     release flow once a version bump is merged).
+# Before the FIRST dispatch, the repo owner must do these manual steps
+# (they cannot be done from CI):
+#   1. crates.io: publish v0.1.0 once by hand (`cargo publish -p dusrelpdf`
+#      with a crates.io API token), then add this repo as a crates.io
+#      Trusted Publisher (crate Settings > Trusted Publishing) so later
+#      publishes can use OIDC instead of a token.
+#   2. npm: publish v0.1.0 once by hand, then add this repo as an npm
+#      Trusted Publisher (npmjs.com package Settings > Trusted Publisher)
+#      so `npm publish --provenance` can use OIDC instead of a token.
+#   3. PyPI: add this repo as a PyPI pending publisher for project
+#      `dusrelpdf` (pypi.org > Your projects > Trusted Publishing); no
+#      manual first publish is needed for PyPI.
+# Until those are done, every job here will fail at the OIDC step —
+# that is expected, not a bug in the workflow.
+#
+# Each registry is an independent job: a failure in one does not block
+# the others, and each can be re-dispatched on its own if needed.
+# Nothing in this workflow bumps versions or creates tags; the version
+# published is whatever is in Cargo.toml / package.json / pyproject.toml
+# as committed (currently 0.1.0).
+
+name: Publish
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+      - 'dusrelpdf-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  crates-io:
+    name: Publish to crates.io (OIDC)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Dry-run package check (core crate only)
+        run: cargo publish -p dusrelpdf --dry-run
+      - name: Authenticate to crates.io (OIDC)
+        uses: rust-lang/crates-io-auth-action@v1
+      - name: Publish core crate to crates.io
+        # Only the core `dusrelpdf` crate is published. Every other
+        # workspace crate (dusrelpdf-cli, -ffi, -napi, -py, -uniffi,
+        # -wasm) has `publish = false` in its Cargo.toml and is never
+        # published.
+        run: cargo publish -p dusrelpdf
+
+  build-napi:
+    name: Build napi prebuild (${{ matrix.target }})
+    strategy:
+      matrix:
+        # Targets mirror the `napi.targets` list in
+        # crates/dusrelpdf-napi/package.json.
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            build: npx napi build --platform --release --target x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            # Cross-compiling to aarch64 Linux needs the aarch64 linker.
+            build: |
+              sudo apt-get update
+              sudo apt-get install -y gcc-aarch64-linux-gnu
+              npx napi build --platform --release --target aarch64-unknown-linux-gnu
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            build: npx napi build --platform --release --target x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            build: npx napi build --platform --release --target aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            build: npx napi build --platform --release --target x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crates/dusrelpdf-napi/package-lock.json
+      - name: Install napi CLI deps
+        working-directory: crates/dusrelpdf-napi
+        run: npm ci
+      - name: Build native addon
+        working-directory: crates/dusrelpdf-napi
+        run: ${{ matrix.build }}
+      - name: Upload .node artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.target }}
+          path: crates/dusrelpdf-napi/*.node
+          if-no-files-found: error
+
+  npm:
+    name: Publish to npm (OIDC, platforms first, root last)
+    runs-on: ubuntu-latest
+    needs: [build-napi]
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          # `token` MUST stay empty: if NODE_AUTH_TOKEN is set at all,
+          # npm skips the OIDC exchange and the publish fails (same
+          # lesson as indycheck — setup-node defaults `token` to the
+          # GitHub token unless overridden here).
+          token: ""
+      - name: Use npm >= 11.5.1 (OIDC provenance needs it)
+        run: |
+          npm install -g npm@11
+          npm --version
+          node -e "const v=require('child_process').execSync('npm --version',{encoding:'utf8'}).trim().split('.').map(Number); if (v[0]!==11||v[1]<5) { console.error('npm >= 11.5.1 is required for OIDC provenance, got '+v.join('.')); process.exit(1); }"
+      - name: Download napi .node artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bindings-*
+          merge-multiple: true
+          path: crates/dusrelpdf-napi
+      - name: Install napi CLI deps
+        working-directory: crates/dusrelpdf-napi
+        run: npm ci
+      - name: Lay out napi platform packages
+        working-directory: crates/dusrelpdf-napi
+        run: |
+          npx napi artifacts
+          npx napi pre-publish --tag-style npm
+      - name: Publish napi platform packages FIRST
+        run: |
+          # OPEN QUESTION — npm trusted-publisher scope (needs a dry run
+          # before the first real publish): it is NOT yet verified
+          # whether ONE trusted publisher configured on the root
+          # `dusrelpdf` package also covers these platform packages
+          # (`dusrelpdf-napi-<platform>-<arch>-<abi>`), or whether EACH
+          # platform package needs its own trusted publisher on
+          # npmjs.com. If a platform publish below fails with a 403,
+          # add a trusted publisher for that package and re-dispatch.
+          # NOTE: the platform packages do not exist in the tree yet —
+          # they are generated by `napi artifacts` + `napi pre-publish`
+          # above from crates/dusrelpdf-napi/package.json, and the root
+          # package still needs its optionalDependencies wiring (a
+          # separate packaging step). If `npm/` was not generated, fail
+          # loudly here instead of silently publishing a root package
+          # with no native prebuilds.
+          test -d crates/dusrelpdf-napi/npm || { echo "::error::No napi platform packages were generated under crates/dusrelpdf-napi/npm/ — the napi packaging wiring is not in place yet. Fix it and re-dispatch; NOT publishing the root package."; exit 1; }
+          for pkg in crates/dusrelpdf-napi/npm/*/; do
+            echo "publishing $pkg"
+            npm publish --provenance "$pkg"
+          done
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build root package (WASM dist)
+        working-directory: packages/js
+        run: |
+          npm ci
+          # Same as a `prepublishOnly` build: regenerate dist/ (and
+          # wasm-pkg/) from the committed sources before publishing.
+          # (packages/js/package.json does not define prepublishOnly
+          # yet — this explicit build is what guarantees it here.)
+          npm run build
+      - name: Publish root package LAST
+        working-directory: packages/js
+        run: npm publish --provenance
+
+  build-wheels:
+    name: Build Python wheel (${{ matrix.target }})
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            args: --release --out dist --interpreter python3.12 --manylinux auto
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            # Cross-built on x86_64 via maturin-action's zig support.
+            args: --release --out dist --interpreter python3.12 --manylinux auto
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            # Cross-built from the arm64 runner (both macOS arches
+            # share the SDK; rustup installs the target above).
+            args: --release --out dist --interpreter python3.12
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            args: --release --out dist --interpreter python3.12
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: --release --out dist --interpreter python3.12
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheel with maturin
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: ${{ matrix.args }}
+          working-directory: crates/dusrelpdf-py
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.target }}
+          path: crates/dusrelpdf-py/dist/*.whl
+          if-no-files-found: error
+
+  pypi:
+    name: Publish to PyPI (OIDC)
+    runs-on: ubuntu-latest
+    needs: [build-wheels]
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+      - name: Build sdist
+        run: |
+          python -m pip install --upgrade pip maturin
+          python -m maturin sdist --manifest-path crates/dusrelpdf-py/pyproject.toml --out dist
+      - name: Publish to PyPI
+        # Trusted Publishing (OIDC): no token/password is passed. The
+        # repo owner must first add this repo as a pending publisher
+        # for PyPI project `dusrelpdf` (see the header comment).
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

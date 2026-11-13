@@ -4,9 +4,11 @@
  * Unlike indycheck (whose JS package is a pure-TS mirror of string
  * validators), PDF binary manipulation cannot be mirrored in pure TS,
  * so this package wraps the Rust core — through the native napi-rs
- * addon when it is built (`crates/dusrelpdf-napi`, `.node`), and
- * through WASM (`crates/dusrelpdf-wasm`, `--target nodejs`) as a
- * fallback. `backend()` reports which engine is active; setting
+ * addon when it is available (an installed `dusrelpdf-<triple>`
+ * platform package, an `optionalDependency` whose `package.json`
+ * `main` points at its `.node`; in a source checkout, a `.node`
+ * built in `crates/dusrelpdf-napi`), and through WASM
+ * (`crates/dusrelpdf-wasm`, `--target nodejs`) as a fallback. `backend()` reports which engine is active; setting
  * `DUSREL_PDF_FORCE_WASM=1` forces the WASM path (tests / debugging).
  * Every operation takes bytes in and returns bytes out,
  * synchronously — both backends are synchronous, so there is nothing
@@ -228,21 +230,80 @@ function forceWasm(): boolean {
   return process.env.DUSREL_PDF_FORCE_WASM === "1";
 }
 
+/** Detect a musl-libc Linux (Alpine etc.) — the canonical napi-rs
+ *  check: `process.report` exposes the runtime glibc version, and
+ *  it is absent on musl; fall back to reading `/usr/bin/ldd`. */
+function isMusl(): boolean {
+  try {
+    const report = (
+      process as unknown as {
+        report?: { getReport?: () => { header?: { glibcVersionRuntime?: string } } };
+      }
+    ).report;
+    if (report && typeof report.getReport === "function") {
+      return !report.getReport().header?.glibcVersionRuntime;
+    }
+  } catch {
+    // Fall through to the ldd check below.
+  }
+  try {
+    const fs = require("node:fs") as typeof import("node:fs");
+    return fs.readFileSync("/usr/bin/ldd", "utf8").includes("musl");
+  } catch {
+    return false;
+  }
+}
+
 /** Platform triple used in napi `.node` filenames, e.g.
  *  `linux-x64-gnu` (napi CLI output: `dusrelpdf-napi.<triple>.node`). */
 function nativeTriple(): string {
-  const platform = process.platform;
-  const arch = process.arch;
-  if (platform === "linux") return `linux-${arch}-gnu`;
-  if (platform === "win32") return `win32-${arch}-msvc`;
-  return `${platform}-${arch}`;
+  return nativeTriples()[0];
 }
 
-/** Candidate `.node` paths, in priority order. `DUSREL_PDF_NATIVE_PATH`
- *  points straight at one file (tests / custom builds). The rest
- *  search `crates/dusrelpdf-napi/` relative to this file (dist build
- *  and vitest both sit two levels below the repo root) and relative
- *  to the working directory (repo root, or `packages/js`). */
+/** Platform triples, preferred first. On Linux the libc matters:
+ *  a musl host tries the musl package first, a glibc host the gnu
+ *  package first, and each falls back to the other — a `.node` for
+ *  the wrong libc simply fails to load and is skipped, so a stale
+ *  or mismatched binary never breaks the WASM fallback. */
+function nativeTriples(): string[] {
+  const platform = process.platform;
+  const arch = process.arch;
+  if (platform === "linux") {
+    const gnu = `linux-${arch}-gnu`;
+    const musl = `linux-${arch}-musl`;
+    return isMusl() ? [musl, gnu] : [gnu, musl];
+  }
+  if (platform === "win32") return [`win32-${arch}-msvc`];
+  return [`${platform}-${arch}`];
+}
+
+/** Resolve an installed platform package
+ *  (`dusrelpdf-<triple>`, shipped as an `optionalDependency` of
+ *  this package — see `packages/js/package.json`). Its own
+ *  `package.json` `main` points straight at the `.node` file, so
+ *  resolving the package name is enough; no filename guessing.
+ *  Returns the resolved `.node` path, or `null` when that platform
+ *  package is not installed (a source checkout, where the
+ *  repo-relative candidates below apply instead). */
+function resolvePlatformPackage(triple: string): string | null {
+  if (typeof require === "undefined") return null;
+  try {
+    return require.resolve(`dusrelpdf-${triple}`) as string;
+  } catch {
+    return null;
+  }
+}
+
+/** Candidate `.node` paths, in priority order:
+ *  1. `DUSREL_PDF_NATIVE_PATH` points straight at one file (tests /
+ *     custom builds).
+ *  2. An installed platform package (`dusrelpdf-<triple>`, an
+ *     `optionalDependency`) — this is how an npm-installed user
+ *     gets the native addon.
+ *  3. `crates/dusrelpdf-napi/` relative to this file (dist build
+ *     and vitest both sit two levels below the repo root) and
+ *     relative to the working directory (repo root, or
+ *     `packages/js`) — local development from a source checkout. */
 function nativeCandidates(): string[] {
   const triple = nativeTriple();
   const names = [
@@ -260,6 +321,10 @@ function nativeCandidates(): string[] {
   const out: string[] = [];
   const override = process.env.DUSREL_PDF_NATIVE_PATH;
   if (override) out.push(override);
+  for (const t of nativeTriples()) {
+    const resolved = resolvePlatformPackage(t);
+    if (resolved) out.push(resolved);
+  }
   for (const dir of dirs) {
     for (const name of names) out.push(path.join(dir, name));
   }
@@ -315,7 +380,8 @@ function backendImpl(): BackendImpl {
 
 /**
  * Which engine is actually running the Rust core: `"native"` (the
- * napi-rs `.node` addon, when built in `crates/dusrelpdf-napi`) or
+ * napi-rs `.node` addon — from an installed `dusrelpdf-<triple>`
+ * platform package, or built in `crates/dusrelpdf-napi`) or
  * `"wasm"` (the wasm-pack fallback, or when `DUSREL_PDF_FORCE_WASM=1`
  * is set). Loads the backend on first call.
  */

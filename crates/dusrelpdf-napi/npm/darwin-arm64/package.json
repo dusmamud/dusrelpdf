@@ -1,0 +1,17 @@
+{
+  "name": "dusrelpdf-darwin-arm64",
+  "version": "0.1.0",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "main": "dusrelpdf-napi.darwin-arm64.node",
+  "files": [
+    "dusrelpdf-napi.darwin-arm64.node"
+  ],
+  "description": "Node.js native bindings for dusrelpdf",
+  "author": "dusmamud",
+  "license": "MIT"
+}

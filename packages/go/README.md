@@ -4,30 +4,97 @@ Idiomatic Go (cgo) wrapper over the dusrelpdf Rust core, via the C ABI
 in `crates/dusrelpdf-ffi`. All PDF logic lives in Rust; this package
 only converts Go values to C buffers / JSON options and back.
 
-Module: `github.com/dusmamud/dusrelpdf-go` — **no release/tag exists
-yet**, so it cannot be `go get`-installed from the public module
-proxy. Use a `replace` directive (below) until a tag is cut.
+Module: `github.com/dusmamud/dusrelpdf-go` (`go.mod`: `go 1.24`, no
+dependencies).
 
-## Build the shared library first
+## Install
+
+Once the first tag exists, install it like any Go module:
 
 ```sh
-# from the repo root
-cargo build -p dusrelpdf-ffi --release
-# Linux:   target/release/libdusrelpdf.so
-# macOS:   target/release/libdusrelpdf.dylib
-# Windows: target/release/dusrelpdf.dll
+go get github.com/dusmamud/dusrelpdf-go@v0.1.0
 ```
 
-The `#cgo LDFLAGS` line in `dusrelpdf.go` links against that file and
-bakes an rpath to it, so `go test` / `go build` find the library at
-runtime with no `LD_LIBRARY_PATH` — as long as the repo layout is
-unchanged. If you move the `.so`, set `LD_LIBRARY_PATH` (Linux) /
-`DYLD_LIBRARY_PATH` (macOS) to its directory instead.
+That needs the git tag **`packages/go/v0.1.0`** on the repo (a
+subdirectory module is tagged by its path, not by a bare `v0.1.0`).
+**The tag does not exist yet** — nothing is released — so today that
+command fails with "module not found". Until Dus cuts the tag, use a
+`replace` directive (below).
 
-For a standalone binary (no repo layout), copy the built library next
-to your binary and link with `-L<dir> -ldusrelpdf
--Wl,-rpath,$ORIGIN` (Linux) — or vendor the `.so` in your project and
-point the `#cgo` line at it.
+No Rust toolchain is needed to *use* the module: the compiled Rust
+core is vendored as a static library under `lib/<GOOS>-<GOARCH>/`
+(see `lib/README.md`), and the C header is vendored as
+`dusrelpdf.h` next to the Go source. The `#cgo` lines in
+`dusrelpdf.go` link the archive for your platform and pull in the
+system libraries the static Rust library needs (`-ldl -lpthread
+-lm` on Linux, CoreFoundation/Security on macOS, ws2_32/userenv/
+bcrypt/ntdll on Windows).
+
+One one-time step after install: the Linux archives are stored as
+20 MB chunks (the GitHub API rejects blobs over ~40 MB), so
+reassemble them once — no Rust, no network:
+
+```sh
+go generate github.com/dusmamud/dusrelpdf-go
+```
+
+That runs `lib/assemble.sh`, concatenates the parts and verifies
+their SHA-256 checksums. CI does the same before `go test`.
+
+Vendored platforms today:
+
+| Platform | Status |
+| --- | --- |
+| Linux x86_64 | vendored (`lib/linux-amd64/libdusrelpdf.a`) |
+| Linux aarch64 | vendored (`lib/linux-arm64/libdusrelpdf.a`) |
+| Windows x86_64 | vendored (`lib/windows-amd64/libdusrelpdf.a`, GNU/MinGW build) |
+| macOS arm64 / x86_64 | **not vendored yet** — built by `.github/workflows/release-assets.yml` (manual dispatch), then committed by a maintainer |
+
+On a platform with no vendored archive the build fails at link
+time with a missing-file error. That is deliberate: it is better
+than silently linking a stale or wrong library. See "Build the
+library yourself" below for the escape hatch.
+
+## Build the library yourself (fallback)
+
+Only needed if you are developing the Rust core, your platform has
+no vendored archive, or you want to check the vendored archive
+against a fresh build. From the repo root:
+
+```sh
+cargo build -p dusrelpdf-ffi --release
+# Linux x86_64: target/release/libdusrelpdf.a
+# Linux aarch64: target/aarch64-unknown-linux-gnu/release/libdusrelpdf.a
+#   (rustup target add aarch64-unknown-linux-gnu + gcc-aarch64-linux-gnu;
+#    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc)
+# Windows x86_64 (GNU): target/x86_64-pc-windows-gnu/release/libdusrelpdf.a
+#   (rustup target add x86_64-pc-windows-gnu + gcc-mingw-w64-x86-64;
+#    CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc)
+# macOS: target/release/libdusrelpdf.a (built on a Mac; x86_64 needs
+#   --target x86_64-apple-darwin, then lipo for a universal archive)
+```
+
+This builds the **staticlib** (`crate-type` in
+`crates/dusrelpdf-ffi/Cargo.toml` includes `staticlib` for exactly
+this reason). Then drop the fresh `.a` into the matching
+`lib/<GOOS>-<GOARCH>/` directory and rebuild — the `#cgo` lines pick
+it up with no other change. Do not point cgo at the shared library
+(`libdusrelpdf.so` / `.dylib` / `.dll`): the module no longer links
+the cdylib, because a shared library would need to be found at
+runtime (`LD_LIBRARY_PATH` / rpath / next-to-the-binary) by every
+`go get` user.
+
+If you also changed the exported C API, regenerate the header and
+refresh the vendored copy (see `lib/README.md`) before rebuilding
+the archives — a stale `.a` or header silently keeps old behaviour.
+
+Until a tag exists, depend on it with a replace directive:
+
+```go
+// go.mod
+require github.com/dusmamud/dusrelpdf-go v0.1.0
+replace github.com/dusmamud/dusrelpdf-go => /path/to/dusrelpdf/packages/go
+```
 
 ## Use it
 
@@ -54,13 +121,8 @@ info, err := dusrelpdf.GetPDFInfo(pdf, nil)
 fmt.Println(info.PageCount, info.Version, info.PageSizes)
 ```
 
-Until a tag exists, depend on it with a replace directive:
-
-```go
-// go.mod
-require github.com/dusmamud/dusrelpdf-go v0.1.0
-replace github.com/dusmamud/dusrelpdf-go => /path/to/dusrelpdf/packages/go
-```
+Until a tag exists, depend on it with a replace directive (see
+"Install" above).
 
 ## API
 
@@ -122,8 +184,8 @@ Image fixtures (PNG/JPEG) are generated in-test with the Go stdlib.
   drops original outlines (rebuilt flat), watermark / page-number
   text is ASCII only, signature is a raster image.
 - Whole documents live in memory; no streaming.
-- The cdylib is found via the baked rpath pointing into this repo's
-  `target/release/` — a published module needs the library shipped
-  alongside it (see "Build the shared library first").
-- No Go module release/tag yet — `go get` will not work until one
-  is cut (deliberate: this piece does not publish).
+- macOS has no vendored archive yet (see "Install"), so the module
+  does not build there until one is committed.
+- No Go module release/tag yet — `go get` will not work until the
+  `packages/go/v0.1.0` tag is cut (deliberate: this piece does not
+  publish).

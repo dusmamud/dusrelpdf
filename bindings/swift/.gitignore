@@ -1,0 +1,5 @@
+# SwiftPM build outputs and the locally built XCFramework — never committed.
+# (The released XCFramework is a GitHub Release asset, not a repo file.)
+.build/
+DusrelpdfFFI.xcframework
+DusrelpdfFFI.xcframework.zip

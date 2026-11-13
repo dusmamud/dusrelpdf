@@ -1,0 +1,20 @@
+{
+  "name": "dusrelpdf-linux-arm64-gnu",
+  "version": "0.1.0",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "main": "dusrelpdf-napi.linux-arm64-gnu.node",
+  "files": [
+    "dusrelpdf-napi.linux-arm64-gnu.node"
+  ],
+  "description": "Node.js native bindings for dusrelpdf",
+  "author": "dusmamud",
+  "license": "MIT",
+  "libc": [
+    "glibc"
+  ]
+}

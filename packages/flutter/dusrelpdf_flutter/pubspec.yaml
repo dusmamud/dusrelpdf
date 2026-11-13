@@ -1,0 +1,47 @@
+name: dusrelpdf_flutter
+description: Flutter plugin wiring for dusrelpdf — bundles the native Rust library (libdusrelpdf) per platform so Flutter apps can use the pure-Dart `dusrelpdf` package without building or bundling the library themselves.
+version: 0.1.0
+repository: https://github.com/dusmamud/dusrelpdf
+issue_tracker: https://github.com/dusmamud/dusrelpdf/issues
+homepage: https://github.com/dusmamud/dusrelpdf
+
+environment:
+  sdk: ^3.0.0
+  flutter: '>=3.10.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Path dependency: both packages live in this repo. Before the first
+  # pub.dev publish, switch this to the hosted dependency
+  # `dusrelpdf: ^0.1.0` (that requires `dusrelpdf` to be published
+  # first — it is not published yet, as of v0.1.0).
+  dusrelpdf:
+    path: ../dusrelpdf
+
+dev_dependencies:
+  flutter_lints: ^4.0.0
+  flutter_test:
+    sdk: flutter
+  test: ^1.25.0
+
+flutter:
+  plugin:
+    implements: dusrelpdf
+    platforms:
+      android:
+        package: io.github.dusmamud.dusrelpdf_flutter
+        pluginClass: DusrelpdfFlutterPlugin
+        ffiPlugin: true
+      ios:
+        pluginClass: DusrelpdfFlutterPlugin
+        ffiPlugin: true
+      linux:
+        pluginClass: DusrelpdfFlutterPlugin
+        ffiPlugin: true
+      macos:
+        pluginClass: DusrelpdfFlutterPlugin
+        ffiPlugin: true
+      windows:
+        pluginClass: DusrelpdfFlutterPlugin
+        ffiPlugin: true
