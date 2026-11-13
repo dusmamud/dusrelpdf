@@ -14,9 +14,11 @@
 # Known limit this config does NOT fix: release-plz only counts commits
 # touching the publishable crate's own directory, so a batch that only
 # touches bindings / packages / website / workflows produces
-# "already up to date" and no PR. That case is covered by the
-# satellite fallback in .github/workflows/release.yml +
-# scripts/release_fallback.sh — see that script for the design.
+# "already up to date" and no PR. The same happens for the FIRST
+# release (the only core commit is the non-conventional initial one).
+# Both cases are covered by the satellite fallback in
+# .github/workflows/release.yml + scripts/release_fallback.sh — see
+# that script for the design.
 #
 # Replaces the old hidden `.release-plz.toml` (release-plz reads
 # `release-plz.toml` first, so there must be exactly one config).

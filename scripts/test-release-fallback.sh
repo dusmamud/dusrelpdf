@@ -208,17 +208,36 @@ else
 fi
 cd "$REPO_ROOT"
 
-# --- Case 4: no tag at all -> no bump ----------------------------------
+# --- Case 4: no tag at all -> FIRST release, no bump ------------------
+# release-plz cannot see a first release (no conventional core commit),
+# so the fallback opens it: version stays 0.1.0, only the changelog
+# moves. Re-checking after apply still says yes — that is by design:
+# until the release PR merges and the tag exists, a re-dispatch must
+# be able to re-open the PR (the workflow's open-PR guard is what
+# stops duplicates while it is open).
 d="$TMP/case4"
 make_fixture "$d"
 cd "$d"
 echo 'more' >> bindings/kotlin/binding.kt
 git add -A && git commit -qm "feat: binding"
-if bash scripts/release_fallback.sh check >/dev/null 2>"$TMP/case4.err"; then
-  bad "case4 no-tag check must exit 1"
+if out=$(bash scripts/release_fallback.sh check 2>"$TMP/case4.err"); then rc=0; else rc=$?; fi
+check_eq "case4 no-tag check exits 0 (first release)" "$rc" "0"
+check_eq "case4 check prints NEW_VERSION=0.1.0 + first_release=true" "$out" "NEW_VERSION=0.1.0
+first_release=true"
+if out=$(bash scripts/release_fallback.sh apply 2>"$TMP/case4-apply.err"); then rc=0; else rc=$?; fi
+check_eq "case4 apply exits 0" "$rc" "0"
+check_eq "case4 apply prints NEW_VERSION=0.1.0 + first_release=true" "$out" "NEW_VERSION=0.1.0
+first_release=true"
+check_eq "case4 Cargo.toml NOT bumped (still 0.1.0)" "$(grep -m1 '^version =' Cargo.toml)" 'version = "0.1.0"'
+if [ "$(git status --porcelain | awk '{print $2}')" = "CHANGELOG.md" ]; then
+  ok "case4 only CHANGELOG.md changed"
 else
-  ok "case4 no-tag check exits 1"
-  grep -q "no release tag yet" "$TMP/case4.err" && ok "case4 reason mentions missing tag" || bad "case4 reason mentions missing tag"
+  bad "case4 only CHANGELOG.md changed: $(git status --porcelain)"
+fi
+if grep -q "^## \[0.1.0\] - " CHANGELOG.md && grep -q "Phase 2 bindings" CHANGELOG.md; then
+  ok "case4 changelog has dated [0.1.0] with moved Unreleased notes"
+else
+  bad "case4 changelog has dated [0.1.0] with moved Unreleased notes"
 fi
 cd "$REPO_ROOT"
 

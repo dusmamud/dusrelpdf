@@ -8,6 +8,14 @@
 #   bindings batch — makes release-plz say "already up to date" and
 #   open no release PR, so the work ships in no released version.
 #
+#   The same thing happens for the FIRST release: the only commit that
+#   ever touched crates/dusrelpdf/ is the non-conventional initial
+#   commit, so release-plz computes next version == current version
+#   (0.1.0) with an empty changelog and reports "already up-to-date"
+#   even though the package has never been published (no tag, no
+#   crates.io entry). The fallback therefore also covers the first
+#   release — see `decide()`'s no-tag branch.
+#
 # THE FIX (this script + the satellite-fallback job in
 # .github/workflows/release.yml)
 #   When release-plz found nothing to do, bump the patch version and
@@ -20,14 +28,25 @@
 #      the fallback does nothing. release-plz's own PRs use branches
 #      `release-plz-YYYY-MM-DDTHH-MM-SSZ`, so this catches them.
 #   2. It only acts when ALL of these hold (checked here, in `check`):
-#        - a release tag exists (dusrelpdf-vX.Y.Z, else bare vX.Y.Z);
-#          with no tag at all the first release is release-plz's job.
-#        - the local workspace version EQUALS the latest tag's version
-#          (nothing is already bumped or in flight).
-#        - satellite files changed since that tag, AND the Rust core
-#          (crates/dusrelpdf/) did NOT change. Any core change means
-#          release-plz will handle the release itself, so the fallback
-#          stands down — this is what makes a mixed batch safe.
+#        - EITHER a release tag exists (dusrelpdf-vX.Y.Z, else bare
+#          vX.Y.Z) — the satellite case — OR no tag exists at all —
+#          the first-release case (see below).
+#        - satellite case: the local workspace version EQUALS the
+#          latest tag's version (nothing is already bumped or in
+#          flight); satellite files changed since that tag, AND the
+#          Rust core (crates/dusrelpdf/) did NOT change. Any core
+#          change means release-plz will handle the release itself, so
+#          the fallback stands down — this is what makes a mixed batch
+#          safe.
+#        - first-release case: the local version is the version to
+#          release (NO bump — 0.1.0 is released as 0.1.0); the PR only
+#          moves the CHANGELOG.md [Unreleased] notes into a dated
+#          [0.1.0] entry. It runs only because release-plz already ran
+#          first in the same workflow and opened nothing (the workflow
+#          orders the jobs that way and guard 1 above stops it if a
+#          release PR is open). Once the release PR merges and the
+#          release step creates the dusrelpdf-v0.1.0 tag, this branch
+#          never applies again.
 #   3. It runs in its own workflow job with a fresh checkout of main,
 #      never in the release-plz job's working tree, so it cannot touch
 #      release-plz's in-progress files.
@@ -51,14 +70,18 @@
 #
 # Usage:
 #   bash scripts/release_fallback.sh check   # exit 0 + prints
-#     NEW_VERSION=X.Y.Z  if a satellite bump is due, else exit 1 and a
+#     NEW_VERSION=X.Y.Z  (and first_release=true for a first release)
+#     if a satellite bump / first release is due, else exit 1 and a
 #     SKIP reason on stderr. Safe to run anywhere, never changes files.
 #   bash scripts/release_fallback.sh apply   # runs the check, then
 #     bumps the patch version everywhere (Cargo.toml, Cargo.lock,
 #     scripts/sync-versions.sh for the JS/Python/Flutter/Go/website
 #     manifests) and moves the CHANGELOG.md [Unreleased] notes into a
-#     dated [X.Y.Z] entry. Prints NEW_VERSION=X.Y.Z. Does NOT commit,
-#     branch, or open a PR — the workflow does that.
+#     dated [X.Y.Z] entry. For a first release there is no bump — the
+#     version is already the release version — so only the changelog
+#     moves. Prints NEW_VERSION=X.Y.Z (and first_release=true for a
+#     first release). Does NOT commit, branch, or open a PR — the
+#     workflow does that.
 #
 # Tests: scripts/test-release-fallback.sh (scratch repos, both the
 # bump and the no-bump cases).
@@ -98,27 +121,46 @@ bump_patch() {
 }
 
 # Prints the changed satellite areas (first two path components) since
-# $1, one per line, e.g. "packages/go". Used for the changelog entry.
+# $1, one per line, e.g. "packages/go". With an empty $1 (no release
+# tag yet — first release) the diff is against the root commit, i.e.
+# everything the repo has ever added.
 changed_areas() {
-  git diff --name-only "$1" HEAD -- $SATELLITE_PATHS ':!crates/dusrelpdf' \
+  local base="$1"
+  if [ -z "$base" ]; then
+    base=$(git rev-list --max-parents=0 HEAD | head -n1)
+  fi
+  git diff --name-only "$base" HEAD -- $SATELLITE_PATHS ':!crates/dusrelpdf' \
     | awk -F/ '{ if (NF > 1) print $1"/"$2; else print $1 }' \
     | sort -u
 }
 
-# Decide whether a satellite bump is due. On success prints
-# NEW_VERSION=X.Y.Z to stdout and exits 0; otherwise prints a SKIP
-# reason to stderr and exits 1. Never changes files.
+# Decide whether a satellite bump / first release is due. On success
+# prints NEW_VERSION=X.Y.Z (plus first_release=true for a first
+# release) to stdout and exits 0; otherwise prints a SKIP reason to
+# stderr and exits 1. Never changes files.
 decide() {
   [ -f Cargo.toml ] || { echo "SKIP: no Cargo.toml here" >&2; return 1; }
   local tag local_v tag_v
   tag=$(latest_tag)
-  if [ -z "$tag" ]; then
-    echo "SKIP: no release tag yet (dusrelpdf-v* or v*) — the first release is release-plz's job" >&2
+  local_v=$(local_version || true)
+  if ! [[ "$local_v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "SKIP: unparsable local version ($local_v)" >&2
     return 1
   fi
-  local_v=$(local_version || true)
+  if [ -z "$tag" ]; then
+    # FIRST RELEASE: no tag exists yet. release-plz already ran in
+    # this workflow and opened nothing (it needs a conventional commit
+    # touching crates/dusrelpdf/ to see a first release, and the only
+    # such commit is the non-conventional initial commit). The version
+    # to release is the local version as-is — NO bump. The PR only
+    # moves the CHANGELOG.md [Unreleased] notes into a dated entry.
+    # The workflow's guard (no open release-plz PR) is what stops a
+    # duplicate while this PR is open.
+    printf 'NEW_VERSION=%s\nfirst_release=true\n' "$local_v"
+    return 0
+  fi
   tag_v=$(tag_version "$tag")
-  if ! [[ "$local_v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || ! [[ "$tag_v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  if ! [[ "$tag_v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "SKIP: unparsable version (local=$local_v tag=$tag)" >&2
     return 1
   fi
@@ -264,18 +306,28 @@ apply_bump() {
   if [ -n "$(git status --porcelain)" ]; then
     die "working tree is dirty — commit or stash first (the fallback never bumps on top of uncommitted changes)"
   fi
-  local out new tag date
+  local out new tag date first_release="false"
   # `decide` already printed the SKIP reason to stderr.
   if ! out=$(decide); then
     return 1
   fi
   new="${out#NEW_VERSION=}"
+  new="${new%%$'\n'*}"
+  if grep -q '^first_release=true$' <<< "$out"; then
+    first_release="true"
+  fi
   tag=$(latest_tag)
   date=$(date -u +%F)
-  bump_cargo_toml "$new"
-  bump_cargo_lock "$new"
-  bash scripts/sync-versions.sh "$new" > /dev/null
-  update_changelog "$new" "$tag" "$date"
+  if [ "$first_release" = "true" ]; then
+    # First release: the version IS the release version — no bump,
+    # no sync. Only the changelog moves.
+    update_changelog "$new" "$tag" "$date"
+  else
+    bump_cargo_toml "$new"
+    bump_cargo_lock "$new"
+    bash scripts/sync-versions.sh "$new" > /dev/null
+    update_changelog "$new" "$tag" "$date"
+  fi
 
   # Verify: the only files changed are the ones this script owns.
   local allowed='^(Cargo\.toml|Cargo\.lock|CHANGELOG\.md|packages/js/package\.json|packages/js/package-lock\.json|crates/dusrelpdf-napi/package\.json|crates/dusrelpdf-napi/package-lock\.json|crates/dusrelpdf-py/pyproject\.toml|packages/flutter/dusrelpdf/pubspec\.yaml|packages/flutter/dusrelpdf_flutter/pubspec\.yaml|website/package\.json|website/astro\.config\.mjs|packages/go/dusrelpdf_test\.go|packages/go/dusrelpdf\.go)$'
@@ -287,8 +339,13 @@ apply_bump() {
   if ! grep -q "## \[$new\] - $date" CHANGELOG.md; then
     die "changelog entry for $new not found after update"
   fi
-  echo "satellite fallback: $tag -> $new (areas changed since $tag: $(changed_areas "$tag" | tr '\n' ' '))" >&2
-  printf 'NEW_VERSION=%s\n' "$new"
+  if [ "$first_release" = "true" ]; then
+    echo "first release: $new (no tag yet; changelog only, no version bump)" >&2
+    printf 'NEW_VERSION=%s\nfirst_release=true\n' "$new"
+  else
+    echo "satellite fallback: $tag -> $new (areas changed since $tag: $(changed_areas "$tag" | tr '\n' ' '))" >&2
+    printf 'NEW_VERSION=%s\n' "$new"
+  fi
 }
 
 case "${1:-}" in

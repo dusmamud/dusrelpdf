@@ -73,9 +73,13 @@ jobs:
           echo "open release PRs on a release-plz branch: $open_prs"
 
       # Guard 2 + decision: scripts/release_fallback.sh check only
-      # says yes when a tag exists, the local version equals the tag,
-      # satellite files changed since the tag, and the Rust core did
-      # not change. Anything else exits 1 and this step is a no-op.
+      # says yes when (a) a tag exists, the local version equals the
+      # tag, satellite files changed since the tag, and the Rust core
+      # did not change, or (b) no tag exists at all — the first
+      # release, where the version stays as-is and only the changelog
+      # moves. Anything else exits 1 and this step is a no-op. The
+      # check prints NEW_VERSION=... plus first_release=true for
+      # case (b); both lines are written to GITHUB_OUTPUT as outputs.
       - name: Check whether a satellite-only bump is due
         id: check
         if: steps.guard.outputs.open_release_prs == '0'
@@ -94,14 +98,23 @@ jobs:
       # only; commit / branch / PR happen here, on a branch named
       # exactly like release-plz's own branches, so the next
       # release-plz run recognises this PR as its own and updates it
-      # instead of opening a second one.
+      # instead of opening a second one. The first-release case prints
+      # a second line (first_release=true) — read it from the apply
+      # output itself so the PR body says "first release" instead of
+      # "satellite-only bump".
       - name: Apply the satellite bump and open the release PR
         if: steps.guard.outputs.open_release_prs == '0' && steps.check.outputs.needed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          NEW_VERSION=$(bash scripts/release_fallback.sh apply)
+          apply_out=$(bash scripts/release_fallback.sh apply)
+          NEW_VERSION=$(echo "$apply_out" | head -n1)
           NEW_VERSION="${NEW_VERSION#NEW_VERSION=}"
+          if echo "$apply_out" | grep -q '^first_release=true$'; then
+            body="First release (v$NEW_VERSION): release-plz found nothing to release — the package has never been published (no tag, no crates.io entry) and the only commit touching the Rust core is the non-conventional initial commit, so release-plz reports 'already up-to-date'. This PR moves the CHANGELOG.md [Unreleased] notes into a dated [$NEW_VERSION] entry; the version stays $NEW_VERSION everywhere (no bump). Merging this PR is the release PR — publishing still needs the manual steps (crates.io / npm / PyPI trusted publishing) afterwards."
+          else
+            body="Satellite-only release (fallback): release-plz found nothing to release because no commit since the last tag touched the Rust core (crates/dusrelpdf/) — the changes since the last tag are bindings / packages / website only. This PR bumps the patch version and moves the CHANGELOG.md [Unreleased] notes into a dated [$NEW_VERSION] entry, same as a release-plz PR would. The next release-plz run will update this PR (branch follows the release-plz- prefix) instead of opening a second one."
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           branch="release-plz-$(date -u +%Y-%m-%dT%H-%M-%SZ)"
@@ -111,4 +124,4 @@ jobs:
           git push -u origin "$branch"
           gh pr create --base main --head "$branch" \
             --title "chore: release v$NEW_VERSION" \
-            --body "Satellite-only release (fallback): release-plz found nothing to release because no commit since the last tag touched the Rust core (crates/dusrelpdf/) — the changes since the last tag are bindings / packages / website only. This PR bumps the patch version and moves the CHANGELOG.md [Unreleased] notes into a dated [$NEW_VERSION] entry, same as a release-plz PR would. The next release-plz run will update this PR (branch follows the release-plz- prefix) instead of opening a second one."
+            --body "$body"
