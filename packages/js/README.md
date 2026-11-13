@@ -256,6 +256,18 @@ npm test               # native tests run when the .node exists, else they skip
 DUSREL_PDF_FORCE_WASM=1 npm test   # forced-WASM run, same suite
 ```
 
+## Lockfile note (platform packages)
+
+`package-lock.json` lists the six `dusrelpdf-<triple>` platform
+packages as `optionalDependencies`. They are **not published yet**,
+so their lockfile entries carry placeholder `integrity` hashes
+(npm tolerates the unresolvable optional deps — `npm ci` skips
+them). **After the first npm publish of the platform packages**,
+regenerate the lockfile with `npm install` so the entries carry
+real `resolved` URLs + integrity hashes, and commit the result.
+Until then, do not delete the entries — `npm ci` (npm 11) fails
+when `package.json` and `package-lock.json` are out of sync.
+
 ## Licence
 
 MIT — author `dusmamud`.

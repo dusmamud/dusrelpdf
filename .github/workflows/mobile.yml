@@ -37,10 +37,15 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # No android-actions/setup-android step: ubuntu-latest runners
+      # already ship the Android SDK (ANDROID_HOME is preset and
+      # cmdline-tools/latest exists). setup-android@v3 fails on current
+      # runners — it runs `sdkmanager tools`, and the `tools` package
+      # no longer exists in the SDK repository (exit code 1). The
+      # step below uses the preinstalled sdkmanager directly.
       - name: Install Android platform + build tools (compileSdk 34)
         run: |
+          test -d "$ANDROID_HOME/cmdline-tools/latest" || { echo "ANDROID_HOME=$ANDROID_HOME has no cmdline-tools/latest"; ls "$ANDROID_HOME/cmdline-tools" || true; exit 1; }
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "platforms;android-34" "build-tools;34.0.0" "platform-tools"
       - name: Set up Gradle

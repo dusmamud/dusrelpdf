@@ -54,6 +54,10 @@ jobs:
             test: musl
           - triple: linux-arm64-gnu
             target: aarch64-unknown-linux-gnu
+            # ubuntu-24.04-arm is a real GitHub-hosted arm64 label
+            # (the job runs on it); actionlint 1.7.3 does not know it
+            # yet, so its "unknown label" warning is stale — do not
+            # "fix" this to ubuntu-latest.
             os: ubuntu-24.04-arm
             test: native
           # Cross-built x64 macOS binary: an arm64 Node on

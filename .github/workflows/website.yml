@@ -10,6 +10,13 @@ jobs:
   website:
     name: Astro Starlight build
     runs-on: ubuntu-latest
+    # `secrets` cannot be read in a step-level `if:` (GitHub rejects the
+    # whole workflow at startup when it is — that is why this workflow
+    # once failed with zero jobs). Evaluate the gate once here at job
+    # level, where `secrets` IS allowed, and test the plain env value
+    # in the steps below.
+    env:
+      CF_DEPLOY: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
     steps:
       - uses: actions/checkout@v4
       # The site's prebuild step runs wasm-pack (build-wasm.mjs), so
@@ -48,7 +55,7 @@ jobs:
       # the deploy in the same job, so no artifact upload/download is
       # needed — dist/ is already on this runner.)
       - name: deploy to Cloudflare Pages
-        if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+        if: env.CF_DEPLOY == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -56,6 +63,6 @@ jobs:
           command: pages deploy dist --project-name=dusrelpdf
           workingDirectory: website
       - name: note deploy skipped (Cloudflare secrets not set yet)
-        if: ${{ secrets.CLOUDFLARE_API_TOKEN == '' || secrets.CLOUDFLARE_ACCOUNT_ID == '' }}
+        if: env.CF_DEPLOY != 'true'
         run: |
           echo "::notice::Cloudflare Pages deploy skipped — CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set yet. Create the 'dusrelpdf' Pages project and add both secrets; the site build and page checks above still ran."

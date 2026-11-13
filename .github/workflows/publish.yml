@@ -76,7 +76,9 @@ jobs:
               sudo apt-get update
               sudo apt-get install -y gcc-aarch64-linux-gnu
               npx napi build --platform --release --target aarch64-unknown-linux-gnu
-          - os: macos-15-intel
+          # macos-13 is the last Intel macOS image (macos-14+ are
+          # Apple Silicon only; there is no macos-15-intel label).
+          - os: macos-13
             target: x86_64-apple-darwin
             build: npx napi build --platform --release --target x86_64-apple-darwin
           - os: macos-latest
