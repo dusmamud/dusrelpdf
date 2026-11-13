@@ -19,3 +19,8 @@ napi = { version = "2", features = ["napi8", "serde-json"] }
 napi-derive = "2"
 serde = "1"
 serde_json = "1"
+
+[build-dependencies]
+# Emits the macOS `-undefined dynamic_lookup` cdylib link flag (via
+# build.rs). Without it the darwin prebuilds fail to link.
+napi-build = "2"

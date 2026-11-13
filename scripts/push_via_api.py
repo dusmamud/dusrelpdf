@@ -88,6 +88,30 @@ def collect_files():
     return sorted(out)
 
 
+def git_index_modes():
+    """path -> '100755' for files tracked executable in the git index.
+
+    The Git Data API tree needs the mode per entry; hardcoding 100644
+    for everything silently strips executable bits (gradlew was pushed
+    100644 and CI failed with './gradlew: Permission denied'). Untracked
+    files are not in the index — fall back to the worktree x bit.
+    """
+    import subprocess
+    modes = {}
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "-s"], cwd=ROOT, capture_output=True,
+            text=True, check=True).stdout
+        for line in out.splitlines():
+            meta, _, path = line.partition("\t")
+            mode = meta.split()[0]
+            if mode == "100755":
+                modes[path] = mode
+    except Exception:
+        pass
+    return modes
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--message", default="dusrelpdf v0.1.0 — initial commit")
@@ -102,13 +126,18 @@ def main():
         return
 
     # 1. blobs
+    index_modes = git_index_modes()
     entries = []
     for rel, full in files:
         with open(full, "rb") as f:
             content = base64.b64encode(f.read()).decode()
         blob = call(f"/repos/{OWNER}/{REPO}/git/blobs", "POST",
                     {"content": content, "encoding": "base64"})
-        entries.append({"path": rel, "mode": "100644",
+        mode = index_modes.get(rel)
+        if mode is None:
+            # Untracked file: preserve the worktree executable bit.
+            mode = "100755" if os.access(full, os.X_OK) else "100644"
+        entries.append({"path": rel, "mode": mode,
                         "type": "blob", "sha": blob["sha"]})
         print(f"blob {rel}: {blob['sha'][:7]}")
 

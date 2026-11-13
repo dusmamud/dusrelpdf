@@ -635,6 +635,7 @@ version = "0.1.0"
 dependencies = [
  "dusrelpdf",
  "napi",
+ "napi-build",
  "napi-derive",
  "serde",
  "serde_json",
@@ -1245,6 +1246,12 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "napi-build"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b899b545d3aa6dca985939059f258c5488d34e4ecf39c274e20009748f4b846d"
 
 [[package]]
 name = "napi-derive"
