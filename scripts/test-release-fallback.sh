@@ -320,6 +320,24 @@ else
 fi
 cd "$REPO_ROOT"
 
+# --- Case 9: untracked file in tree -> apply still works -----------
+# (regression: release run 43388953112 failed because the workflow's
+# check step left check.err in the worktree and apply refused on a
+# "dirty" tree. Tracked modifications must still block it.)
+d="$TMP/case9"
+make_fixture "$d"
+cd "$d"
+git tag dusrelpdf-v0.1.0
+echo 'more flutter' >> packages/flutter/dusrelpdf/pubspec.yaml
+git add -A && git commit -qm "feat: flutter tweaks"
+echo 'ci log' > check.err
+if out=$(bash scripts/release_fallback.sh apply 2>"$TMP/case9-apply.err"); then rc=0; else rc=$?; fi
+check_eq "case9 apply with untracked file exits 0" "$rc" "0"
+check_eq "case9 apply prints NEW_VERSION=0.1.1" "$out" "NEW_VERSION=0.1.1"
+echo '// tracked change' >> crates/dusrelpdf/src/lib.rs
+if bash scripts/release_fallback.sh apply >/dev/null 2>&1; then bad "case9 apply with tracked change must exit 1"; else ok "case9 apply with tracked change exits 1"; fi
+cd "$REPO_ROOT"
+
 echo
 echo "test-release-fallback: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

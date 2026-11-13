@@ -84,12 +84,12 @@ jobs:
         id: check
         if: steps.guard.outputs.open_release_prs == '0'
         run: |
-          if NEW_VERSION=$(bash scripts/release_fallback.sh check 2>check.err); then
+          if NEW_VERSION=$(bash scripts/release_fallback.sh check 2>/tmp/check.err); then
             echo "needed=true" >> "$GITHUB_OUTPUT"
             echo "$NEW_VERSION" >> "$GITHUB_OUTPUT"
             echo "satellite bump due: $NEW_VERSION"
           else
-            cat check.err
+            cat /tmp/check.err
             echo "needed=false" >> "$GITHUB_OUTPUT"
             echo "no satellite fallback needed"
           fi

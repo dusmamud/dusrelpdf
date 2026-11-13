@@ -59,7 +59,10 @@
 #      so the hand-written satellite entry below can be dropped from the
 #      changelog — the satellite CHANGES still ship in the release, and
 #      the PR body records why the bump happened.
-#   5. `apply` refuses to run on a dirty working tree.
+#   5. `apply` refuses to run on a dirty working tree (tracked
+#      modifications only — untracked files such as CI logs do not
+#      block it; the workflow's check step writes its stderr to
+#      /tmp for the same reason).
 #
 # WHAT COUNTS AS "SATELLITE"
 #   crates/ (except crates/dusrelpdf/), packages/, bindings/,
@@ -303,7 +306,11 @@ PYEOF
 }
 
 apply_bump() {
-  if [ -n "$(git status --porcelain)" ]; then
+  # Untracked files (e.g. CI logs) must not block the bump — only
+  # tracked modifications do. The workflow's check step used to write
+  # check.err into the worktree, which tripped this guard on the first
+  # real apply (release run 43388953112).
+  if [ -n "$(git status --porcelain | grep -v '^??' || true)" ]; then
     die "working tree is dirty — commit or stash first (the fallback never bumps on top of uncommitted changes)"
   fi
   local out new tag date first_release="false"
@@ -330,9 +337,11 @@ apply_bump() {
   fi
 
   # Verify: the only files changed are the ones this script owns.
+  # (Untracked files are not ours — same exception as the dirty
+  # check above.)
   local allowed='^(Cargo\.toml|Cargo\.lock|CHANGELOG\.md|packages/js/package\.json|packages/js/package-lock\.json|crates/dusrelpdf-napi/package\.json|crates/dusrelpdf-napi/package-lock\.json|crates/dusrelpdf-py/pyproject\.toml|packages/flutter/dusrelpdf/pubspec\.yaml|packages/flutter/dusrelpdf_flutter/pubspec\.yaml|website/package\.json|website/astro\.config\.mjs|packages/go/dusrelpdf_test\.go|packages/go/dusrelpdf\.go)$'
   local unexpected
-  unexpected=$(git status --porcelain | awk '{print $2}' | grep -vE "$allowed" || true)
+  unexpected=$(git status --porcelain | grep -v '^??' | awk '{print $2}' | grep -vE "$allowed" || true)
   if [ -n "$unexpected" ]; then
     die "unexpected files changed, aborting (nothing committed): $unexpected"
   fi
